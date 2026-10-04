@@ -1,0 +1,78 @@
+name: Build and push to GHCR
+
+# ── 触发时机 ──
+#   push 到主分支      → 构建并推送（latest + sha-xxxx）
+#   push 一个 v1.2.3 标签 → 额外打出 1.2.3 / 1.2 这样的语义化标签
+#   开 PR              → 只构建、不推送（当编译检查用，省得合并了才发现编不过）
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # ⚠️ 故意不写死用户名/组织名：直接取「owner/repo」，
+  #    这样仓库改名、转组织、fork 出去都不用动这个文件。
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # ← 推 GHCR 必须有这一条，否则 403
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # GITHUB_TOKEN 是 Actions 自动注入的，不用自己建密钥
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          # ⚠️ 如果你的仓库根目录**不是** chatz 服务端（比如把 服务端/ 客户端/ 插件/
+          #    三个目录一起塞进一个仓库），这里要改：
+          #      context: ./服务端
+          #      file: ./服务端/Dockerfile
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+          # ⚠️ 只构建 amd64，别随手加 arm64。
+          #    原因：better-sqlite3 是**原生模块**，npm install 时要现场编译 C++；
+          #    走 QEMU 模拟 arm64 会慢到十几分钟起步（实测这类项目很容易超时）。
+          #    如果你的 NAS / 设备确实是 ARM（部分群晖是），再改成：
+          #      platforms: linux/amd64,linux/arm64
+          #    并接受构建时间显著变长。
+          platforms: linux/amd64
+
+          # 用 GitHub Actions 的缓存，第二次构建能省下大半时间
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

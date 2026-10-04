@@ -1,0 +1,39 @@
+services:
+  chatz:
+    build: .
+    container_name: chatz
+    ports:
+      # 前面挂了 Nginx Proxy Manager 时，20010 应该只允许反代到达：
+      #   · 防火墙 / 安全组只放行 80、443，不要放行 20010
+      #   · 若 NPM 也跑在 Docker 里，更干净的做法是两者加入同一个 network，
+      #     然后删掉这段 ports，NPM 里填 http://chatz:20010
+      - "20010:20010"
+      - "20443:20443"
+    # .env 是**可选**的：
+    #   required: false → 文件不存在时 Compose 静默跳过，而不是报
+    #   "env file not found" 拒绝启动。这样全新安装只要 clone + up 两步，
+    #   不需要先手工建 .env。
+    #   需要自定义变量时再 cp .env.example .env（文件存在就会被正常读取）。
+    # ⚠️ 这个 mapping 写法要求 Docker Compose >= 2.24.0（`docker compose version` 可查）。
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: 20010
+      HTTPS_PORT: 20443
+      # 走反代就必须设，否则所有请求都记成 NPM 的内网 IP（限速会把所有人算成同一个地址）
+      #
+      #   auto  ← 推荐：信任本机 / 内网来源的代理（127.0.0.1、172.16.0.0/12、fd00::/7 …）
+      #          不用去查 NPM 的 IP；公网直连的请求一律不解析 XFF，伪造不了
+      #   1     ← 跳数模式：要求 20010 不能被公网直连，否则可绕过反代伪造 IP
+      #   172.17.0.1 ← 只信任这一个地址，最严格，但要自己查：
+      #          docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' <NPM容器名>
+      TRUST_PROXY: auto
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:20010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

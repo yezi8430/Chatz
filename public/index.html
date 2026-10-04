@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Chatz</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 内联脚本已外置到 /boot.js：CSP 里不含 'unsafe-inline'，
+     留内联脚本会直接被拦掉（首屏过渡和背景预置全部失效）。
+     位置保持在 <body> 开头，同步执行，和原内联脚本时机一致。 -->
+<script src="/boot.js"></script>
+
+<div class="bg-layer" id="bgLayer"></div>
+<div class="bg-dim" id="bgDimLayer"></div>
+
+<div id="loginView" class="login-view hidden">
+  <div class="login-card">
+    <div class="login-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+    <h1>Chatz</h1>
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">登录</button>
+      <button class="auth-tab" data-tab="register">注册</button>
+    </div>
+    <div id="loginForm" class="auth-form">
+      <input id="loginUsername" type="text" placeholder="用户名" autocomplete="username">
+      <input id="loginPassword" type="password" placeholder="密码" autocomplete="current-password">
+      <button id="loginBtn" class="btn-primary">登录</button>
+      <div class="auth-divider">或</div>
+      <input id="loginToken" type="password" placeholder="粘贴 Token" autocomplete="off">
+      <button id="tokenLoginBtn" class="btn-secondary">用 Token 登录</button>
+      <button id="forgotLinkBtn" class="setup-link" style="width:100%;margin-top:10px;">忘记密码？</button>
+    </div>
+    <div id="forgotForm" class="auth-form hidden">
+      <p class="setup-hint">输入注册时填的邮箱。重置链接会写到服务日志里，管理员用 <code>docker compose logs chatz</code> 查看。</p>
+      <input id="forgotEmail" type="email" placeholder="邮箱" autocomplete="email">
+      <button id="forgotSubmitBtn" class="btn-primary">获取重置链接</button>
+      <button id="forgotBackBtn" class="setup-link" style="width:100%;margin-top:6px;">返回登录</button>
+    </div>
+    <div id="registerForm" class="auth-form hidden">
+      <input id="regUsername" type="text" placeholder="用户名（2-32 位）" autocomplete="username">
+      <input id="regDisplayName" type="text" placeholder="昵称（可选）">
+      <input id="regEmail" type="email" placeholder="邮箱（可选）" autocomplete="email">
+      <input id="regPassword" type="password" placeholder="密码（至少 6 位）" autocomplete="new-password">
+      <input id="regPassword2" type="password" placeholder="确认密码" autocomplete="new-password">
+      <button id="registerBtn" class="btn-primary">注册</button>
+    </div>
+    <div id="loginError" class="error-text"></div>
+  </div>
+</div>
+
+<!-- 首次引导：只在全新安装（还没设过管理员账号）时出现，
+     让用户直接在浏览器里设账号，省得去 docker logs 里捞随机 Token。
+     正常情况下这个视图永远是 hidden。 -->
+<div id="setupView" class="login-view hidden">
+  <div class="login-card">
+    <div class="login-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+    <h1>初始化 Chatz</h1>
+    <p class="setup-hint">
+      看起来是全新安装。给管理员账号设个用户名和密码，设置完就可以直接开始用。<br>
+      这一步只会开放这一次。
+    </p>
+    <div class="auth-form">
+      <input id="setupUsername" type="text" placeholder="用户名（2-32 位）" autocomplete="username">
+      <input id="setupDisplayName" type="text" placeholder="昵称（可选）">
+      <input id="setupEmail" type="email" placeholder="邮箱（可选，用于找回密码）" autocomplete="email">
+      <input id="setupPassword" type="password" placeholder="密码（至少 6 位）" autocomplete="new-password">
+      <input id="setupPassword2" type="password" placeholder="确认密码" autocomplete="new-password">
+      <button id="setupBtn" class="btn-primary">创建管理员</button>
+    </div>
+    <div id="setupError" class="error-text"></div>
+    <button id="setupToLoginBtn" class="setup-link">我已经拿到管理员 Token，直接登录</button>
+  </div>
+</div>
+
+<!-- 重置密码：从「忘记密码」的日志链接（?token=…）进来时显示 -->
+<div id="resetView" class="login-view hidden">
+  <div class="login-card">
+    <div class="login-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+    <h1>重置密码</h1>
+    <div class="auth-form">
+      <input id="resetPassword" type="password" placeholder="新密码（6-128 位）" autocomplete="new-password">
+      <input id="resetPassword2" type="password" placeholder="确认新密码" autocomplete="new-password">
+      <button id="resetBtn" class="btn-primary">修改密码</button>
+    </div>
+    <div id="resetError" class="error-text"></div>
+    <button id="resetToLoginBtn" class="setup-link">返回登录</button>
+  </div>
+</div>
+
+<div id="mainView" class="app hidden">
+  <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Chatz</span>
+      </div>
+      <div class="header-actions">
+        <button id="themeToggle" class="icon-btn" title="切换主题"></button>
+      </div>
+    </div>
+    <div class="sidebar-actions">
+      <button id="newChannelBtn" class="side-btn">+ 新建频道</button>
+      <button id="discoverBtn" class="side-btn">发现频道</button>
+      <button id="appsBtn" class="side-btn">应用</button>
+      <button id="rulesBtn" class="side-btn">路由规则</button>
+      <!-- 仅超管可见（refreshUserMgmtVisibility 控制）：看全站用户创建的频道/应用/规则 -->
+      <button id="adminBtn" class="side-btn" style="display:none;">管理</button>
+      <button id="markAllReadBtn" class="side-btn subtle">全部已读</button>
+    </div>
+    <nav id="channelList" class="channel-list"></nav>
+    <div class="sidebar-footer">
+      <div class="user-mini" id="userMini">
+        <div class="user-mini-avatar" id="userMiniAvatar">?</div>
+        <div class="user-mini-info">
+          <div class="user-mini-name" id="userMiniName">-</div>
+          <div id="connStatus" class="conn-status">
+            <span class="dot"></span>
+            <span class="text">连接中...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="main-header">
+      <div class="header-left">
+        <button id="hamburgerBtn" class="icon-btn hamburger" title="菜单">
+          <span></span><span></span><span></span>
+        </button>
+        <h2 id="currentTitle">所有消息</h2>
+        <div class="header-tabs">
+          <button class="tab active" data-view="inbox">收件箱</button>
+          <button class="tab" data-view="unread">未读</button>
+          <button class="tab" data-view="archived">收藏</button>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="search-box" id="searchBox">
+          <span class="search-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+          <input id="searchInput" type="text" placeholder="搜索消息... ( / )" autocomplete="off">
+          <button id="searchClear" class="search-clear hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+        <button id="sendBtn" class="btn-primary">发送消息</button>
+      </div>
+    </header>
+    <div id="tagFilterBar" class="tag-filter-bar hidden"></div>
+    <div id="messageList" class="message-list"></div>
+    <div id="emptyState" class="empty-state hidden">
+      <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></div>
+      <p id="emptyText">还没有消息</p>
+      <button id="emptyAction" class="btn-primary hidden">发送第一条消息</button>
+    </div>
+  </main>
+</div>
+
+<div id="sendModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3>发送消息</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <label>频道</label><select id="sendChannelId"></select>
+      <label>标题（可选）</label><input id="sendTitle" type="text" maxlength="500" placeholder="消息标题">
+      <label>内容（支持 Markdown）</label><textarea id="sendBody" rows="6" maxlength="50000" placeholder="**加粗** *斜体*"></textarea>
+      <label>优先级</label>
+      <select id="sendPriority">
+        <option value="0">0 - 最低</option><option value="3">3 - 低</option>
+        <option value="5" selected>5 - 普通</option><option value="8">8 - 高</option>
+        <option value="10">10 - 紧急</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="sendSubmit" class="btn-primary">发送</button>
+    </div>
+  </div>
+</div>
+
+<div id="channelModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3>新建频道</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <label>名称</label><input id="chName" type="text" placeholder="频道名称">
+      <label>描述（可选）</label><input id="chDesc" type="text" placeholder="描述">
+      <label>图标（上传本地图片）</label>
+      <label class="file-input">
+        <input id="chIconFile" type="file" accept="image/*" hidden>
+        <span class="file-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          选择图标
+        </span>
+        <span class="file-name" id="chIconFile-name">未选择</span>
+      </label>
+      <div id="chIconPreview" class="icon-preview"></div>
+      <label class="switch-label"><input id="chPublic" type="checkbox" checked><span>允许其他人订阅</span></label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="chSubmit" class="btn-primary">创建</button>
+    </div>
+  </div>
+</div>
+
+<div id="channelEditModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3>管理频道</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <label>名称</label><input id="chEditName" type="text" placeholder="频道名称">
+      <label>描述（可选）</label><input id="chEditDesc" type="text" placeholder="描述">
+
+      <label>图标</label>
+      <!-- 刻意复用「换头像」那一套 class（user-avatar / user-avatar-overlay /
+           user-avatar-remove），让这里的交互和设置界面里的换头像完全一致：
+           点一下就选图 → 选完立即生效，hover 出遮罩，右上角 ✕ 移除。
+           差异只有尺寸和圆角（见 style.css 的 .ch-icon-editor）——
+           频道图标在侧栏是圆角方形，不是头像那种正圆。 -->
+      <div class="user-avatar clickable ch-icon-editor" id="chEditIcon" title="点击更换图标">
+        <img id="chEditIconImg" src="" alt="" style="display:none;">
+        <span id="chEditIconLetter">#</span>
+        <div class="user-avatar-overlay">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <span>换图标</span>
+        </div>
+        <button id="chEditIconRemove" class="user-avatar-remove hidden" title="移除图标">✕</button>
+      </div>
+      <input id="chEditIconFile" type="file" accept="image/*" hidden>
+
+      <label class="switch-label"><input id="chEditPublic" type="checkbox" checked><span>允许其他人订阅</span></label>
+
+      <label>订阅密码（可选，设置后订阅需输入）</label>
+      <input id="chEditPassword" type="password" placeholder="留空则不修改" autocomplete="new-password" maxlength="64">
+      <button id="chEditPwdClear" class="btn-secondary" style="display:none;margin-top:6px;">清除密码</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="chEditSubmit" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="passwordModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3>需要密码</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <p id="passwordPromptText" style="margin:0 0 10px;">输入密码才能订阅该频道</p>
+      <input id="passwordInput" type="password" placeholder="频道密码" autocomplete="off">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="passwordSubmit" class="btn-primary">订阅</button>
+    </div>
+  </div>
+</div>
+
+<!-- 超管管理页：全站用户创建的频道 / 应用 / 路由规则（只读，带归属用户） -->
+<div id="adminModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header"><h3>管理（全站）</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="admin-tabs" id="adminTabs">
+        <button class="admin-tab active" data-tab="channels">频道</button>
+        <button class="admin-tab" data-tab="apps">应用</button>
+        <button class="admin-tab" data-tab="rules">路由规则</button>
+      </div>
+      <div id="adminList" class="admin-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="discoverModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3>发现频道</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <input id="discoverSearch" type="text" placeholder="搜索频道名或 ID" autocomplete="off">
+      <div id="discoverList" class="discover-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 账户面板：首页 + 分类子页 -->
+<div id="userModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <button id="settingsBack" class="icon-btn settings-back hidden" title="返回" aria-label="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <h3 id="settingsTitle">账户</h3>
+      <button class="icon-btn close-modal">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- ============ 首页 ============ -->
+      <div id="settingsHome" class="settings-page">
+        <div class="user-info">
+          <div class="user-avatar clickable" id="userAvatar" title="点击更换头像">
+            <img id="userAvatarImg" src="" alt="" style="display:none;">
+            <span id="userAvatarLetter">?</span>
+            <div class="user-avatar-overlay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <span>换头像</span>
+            </div>
+            <button id="userAvatarRemove" class="user-avatar-remove hidden" title="移除头像">✕</button>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div class="user-name clickable" id="userName" title="点击修改昵称">-</div>
+            <div class="user-name-edit hidden" id="userNameEdit">
+              <input id="userNameInput" type="text" maxlength="32" placeholder="昵称">
+            </div>
+            <div class="user-sub" id="userSub">-</div>
+          </div>
+        </div>
+
+      <input id="userAvatarFile" type="file" accept="image/*" hidden>
+
+      <h4 class="section-title">设置</h4>
+      <div class="settings-nav">
+        <button class="settings-item" data-page="appearance">
+          <span class="settings-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><polyline points="21 16 16 11 5 21"/></svg>
+          </span>
+          <span class="settings-body">
+            <span class="settings-name">外观</span>
+            <span class="settings-desc">背景图、主题色、图片位置</span>
+          </span>
+          <span class="settings-arrow">&#x203A;</span>
+        </button>
+
+        <button class="settings-item" data-page="security">
+          <span class="settings-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+          </span>
+          <span class="settings-body">
+            <span class="settings-name">安全与登录</span>
+            <span class="settings-desc">修改密码、登录设备</span>
+          </span>
+          <span class="settings-arrow">&#x203A;</span>
+        </button>
+
+        <!-- 仅超级管理员可见：由 app.js 的 refreshUserMgmtVisibility 控制显隐 -->
+        <button class="settings-item hidden" data-page="users" id="userMgmtNavItem">
+          <span class="settings-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          <span class="settings-body">
+            <span class="settings-name">用户管理</span>
+            <span class="settings-desc">提升 / 降级管理员</span>
+          </span>
+          <span class="settings-arrow">&#x203A;</span>
+        </button>
+
+        <button class="settings-item" data-page="certs" id="certNavItem">
+          <span class="settings-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </span>
+          <span class="settings-body">
+            <span class="settings-name">HTTPS 证书</span>
+            <span class="settings-desc">内置 HTTPS 与证书管理</span>
+          </span>
+          <span class="settings-arrow">&#x203A;</span>
+        </button>
+      </div>
+
+      <button id="logoutBtn" class="btn-danger" style="width:100%;margin-top:16px;">退出登录</button>
+      </div>
+
+      <!-- ============ 外观 ============ -->
+      <div id="settingsAppearance" class="settings-page hidden">
+        <h4 class="section-title">界面背景</h4>
+        <div class="bg-status" id="bgStatus">加载中...</div>
+        <label style="font-size:13px;color:var(--text-secondary);margin-top:8px;display:block;">
+          上传背景图（png / jpg / webp，最大 8MB）
+        </label>
+        <label class="file-input">
+          <input id="bgFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          <span class="file-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            选择图片
+          </span>
+          <span class="file-name" id="bgFile-name">未选择</span>
+        </label>
+
+        <div class="bg-slider-row">
+          <label>模糊</label>
+          <input id="bgBlur" type="range" min="0" max="40" value="0">
+          <span id="bgBlurVal">0px</span>
+        </div>
+        <div class="bg-slider-row">
+          <label>暗度</label>
+          <input id="bgDim" type="range" min="0" max="80" value="20">
+          <span id="bgDimVal">20%</span>
+        </div>
+
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:13px;">
+          <input id="bgAccentEnabled" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>用背景图的颜色作为主题色</span>
+        </label>
+        <button id="bgUploadBtn" class="btn-primary" style="width:100%;margin-top:8px;">上传背景</button>
+        <button id="bgDeleteBtn" class="btn-danger" style="width:100%;margin-top:6px;">移除背景</button>
+
+        <h4 class="section-title">消息显示</h4>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input id="imageBottomEnabled" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>图片置底</span>
+        </label>
+      </div>
+
+      <!-- ============ 安全与登录 ============ -->
+      <div id="settingsSecurity" class="settings-page hidden">
+        <h4 class="section-title">用户名</h4>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="accountUsernameInput" class="pwd-field" type="text" maxlength="32" placeholder="用户名" style="flex:1;margin:0;" autocomplete="username">
+          <button id="saveUsernameBtn" class="btn-secondary" style="flex-shrink:0;margin:0;">保存</button>
+        </div>
+        <p class="setup-hint" style="margin:6px 0 0;">登录时用的名字，全局唯一，不能和别人重复。只能包含字母、数字和 _ - .，2-32 位。</p>
+
+        <h4 class="section-title">邮箱</h4>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="emailInput" class="pwd-field" type="email" maxlength="254" placeholder="未设置邮箱" style="flex:1;margin:0;">
+          <button id="saveEmailBtn" class="btn-secondary" style="flex-shrink:0;margin:0;">保存</button>
+        </div>
+        <p class="setup-hint" style="margin:6px 0 0;">请填写邮箱地址，在「忘记密码」时使用</p>
+
+        <h4 class="section-title">修改密码</h4>
+        <input id="pwdNew" class="pwd-field" type="password" autocomplete="new-password" maxlength="128" placeholder="新密码（6-128 位）">
+        <input id="pwdNew2" class="pwd-field" type="password" autocomplete="new-password" maxlength="128" placeholder="确认新密码">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:13px;">
+          <input id="pwdRevoke" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>登出其他设备</span>
+        </label>
+        <button id="changePwdBtn" class="btn-primary" style="width:100%;margin-top:8px;">修改密码</button>
+
+        <h4 class="section-title">登录设备</h4>
+        <div id="deviceList" class="device-list"></div>
+        <button id="addDeviceBtn" class="btn-secondary" style="width:100%;margin-top:8px;">+ 新增设备</button>
+      </div>
+
+      <!-- ============ HTTPS 证书（仅管理员） ============ -->
+      <div id="settingsCerts" class="settings-page hidden">
+        <div id="certStatus" class="cert-status">加载中...</div>
+        <label id="certCrtLabel" style="font-size:13px;color:var(--text-secondary);margin-top:8px;display:block;">证书文件 (fullchain.pem / .crt)</label>
+        <label class="file-input">
+          <input id="certCrtFile" type="file" accept=".pem,.crt,.cer" hidden>
+          <span class="file-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            选择证书
+          </span>
+          <span class="file-name" id="certCrtFile-name">未选择</span>
+        </label>
+        <label id="certKeyLabel" style="font-size:13px;color:var(--text-secondary);margin-top:6px;display:block;">私钥文件 (privkey.pem / .key)</label>
+        <label class="file-input">
+          <input id="certKeyFile" type="file" accept=".pem,.key" hidden>
+          <span class="file-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            选择私钥
+          </span>
+          <span class="file-name" id="certKeyFile-name">未选择</span>
+        </label>
+        <button id="certUploadBtn" class="btn-primary" style="width:100%;margin-top:8px;">上传证书</button>
+        <button id="certDeleteBtn" class="btn-danger" style="width:100%;margin-top:6px;">删除证书</button>
+      </div>
+
+      <!-- ============ 用户管理（仅超级管理员） ============ -->
+      <div id="settingsUsers" class="settings-page hidden">
+        <p class="hint">
+          角色 0 = 普通用户 · 1 = 管理员（只管应用和路由规则，<b>看不到</b>未订阅的私有频道）·
+          2 = 超级管理员（全知 + 能提升他人）。<br>
+          你不能改自己的角色；系统会保证至少留一个超级管理员。
+        </p>
+        <div id="userMgmtList" class="user-mgmt-list">加载中...</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="routeModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header">
+      <h3>路由规则</h3>
+      <button class="icon-btn close-modal">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">规则按排序值从大到小依次执行。前面的规则改了消息内容，后面的规则会看到修改后的结果。</p>
+      <button id="newRouteBtn" class="btn-primary" style="width:100%;margin-bottom:12px;">+ 新建规则</button>
+      <button id="templateBtn" class="btn-secondary" style="width:100%;margin-bottom:12px;">从模板创建</button>
+      <div id="routeList" class="route-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="routeEditModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header">
+      <h3 id="routeEditTitle">新建规则</h3>
+      <button class="icon-btn close-modal">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <label>名称</label>
+      <input id="rtName" type="text" placeholder="规则名称，如：紧急升级">
+      <label>规则排序（越大越先执行，范围 0-100）</label>
+      <input id="rtPriority" type="number" value="50" min="0" max="100">
+      <label class="switch-label">
+        <input id="rtEnabled" type="checkbox" checked>
+        <span>启用</span>
+      </label>
+      <label style="margin-top:16px;">条件（全部满足才触发）</label>
+      <div id="rtConditions" class="rule-rows"></div>
+      <button id="addConditionBtn" class="btn-secondary" style="width:100%;margin-top:4px;">+ 添加条件</button>
+      <label style="margin-top:16px;">动作（按顺序执行）</label>
+      <div id="rtActions" class="rule-rows"></div>
+      <button id="addActionBtn" class="btn-secondary" style="width:100%;margin-top:4px;">+ 添加动作</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="rtSaveBtn" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="templateModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header">
+      <h3>从模板创建规则</h3>
+      <button class="icon-btn close-modal">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div id="templateList" class="template-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="appManageModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header">
+      <h3>应用管理</h3>
+      <button class="icon-btn close-modal">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">每个应用是一个消息来源身份，拥有独立的 Webhook Token。第三方（GitHub、Uptime Kuma 等）通过 Webhook URL 向 Chatz 推送消息。</p>
+      <button id="newAppBtn" class="btn-primary" style="width:100%;margin-bottom:12px;">+ 新建应用</button>
+      <div id="appManageList" class="app-manage-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="appEditModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="appEditTitle">新建应用</h3>
+      <button class="icon-btn close-modal">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <label>名称</label>
+      <input id="appName" type="text" placeholder="如：GitHub">
+
+      <label>描述（可选）</label>
+      <input id="appDesc" type="text" placeholder="如：GitHub 通知">
+
+      <label>默认发到频道</label>
+      <select id="appChannel"></select>
+
+      <label>图标（可选）</label>
+      <label class="file-input">
+        <input id="appIconFile" type="file" accept="image/*" hidden>
+        <span class="file-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          选择图标
+        </span>
+        <span class="file-name" id="appIconFile-name">未选择</span>
+      </label>
+      <div id="appIconPreview" class="icon-preview"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="appSaveBtn" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

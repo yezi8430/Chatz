@@ -1,0 +1,31 @@
+# 环境变量：里面可能放着 AUTH_TOKEN —— 它等同于管理员密码，绝不能进版本库
+.env
+.env.*
+!.env.example
+
+# 运行时数据：SQLite 数据库 + 上传的图片 / 附件 / HTTPS 证书私钥
+# ⚠️ app.db 里除了 meta.auth_token，还有 devices 表里所有人的长期凭据
+data/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# 手工备份的源码副本（如 ws.js.bak.20260925_172907）
+# 这些是临时留档，不该进版本库，也不该被打进镜像
+*.bak
+*.bak.*
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# 本机自用的全站接口自检脚本
+# ⚠️ 它带着真实服务的地址，历史上还硬编码过超管 token（2026-10-02 已清空）。
+#    发到 GitHub 之前这类"个人运维脚本"一律不进版本库 —— 想分享先确认里面没有任何凭据。
+verify-full.sh

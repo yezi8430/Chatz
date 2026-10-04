@@ -1,0 +1,52 @@
+# ============================================================
+# Docker 构建上下文排除名单
+#
+# ⚠️ 这个文件的存在理由：Dockerfile 用的是**整目录拷贝**
+#
+#      COPY src ./src
+#      COPY public ./public
+#
+#   COPY 一步到 Docker 的构建上下文里，**它不看 .gitignore** ——
+#   所以这两个目录下的临时文件会被原样打进镜像，
+#   哪怕它们在 git 里是被忽略的。
+#
+#   public/ 那条尤其要紧：这个目录由 express.static **免鉴权伺服**，
+#   镜像里放一份 app.js.bak 等于把整份前端源码公开挂在公网上。
+#   （2026-09-30 核对时发现过，已清理；这里是防它复发。）
+# ============================================================
+
+# 手工留档的源码副本（app.js.bak、ws.js.bak.20260925_172907 …）
+*.bak
+*.bak.*
+*.orig
+*.rej
+
+# 环境变量：里面可能放着 AUTH_TOKEN —— 它等同于管理员密码。
+# 当前 Dockerfile 只 COPY 了 package*.json / src / public，.env 本来就进不了镜像；
+# 这里加上是防患于未然 —— 万一以后有人写一句 `COPY . .` 就直接把凭据打进公开镜像了。
+.env
+.env.*
+
+# 版本库目录：白占构建上下文体积，而且 .git 里可能有历史提交过的敏感文件
+.git
+.gitignore
+
+# 本机自用的运维脚本（可能带真实服务地址 / 凭据）
+verify-full.sh
+
+# 运行时数据：SQLite 数据库 + devices 表里所有人的长期凭据 + HTTPS 证书私钥
+# 这些东西绝不能进镜像 —— 镜像是可以被 pull 下来翻的
+data/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
