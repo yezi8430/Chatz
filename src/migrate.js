@@ -337,6 +337,22 @@ function migrate(db) {
       db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(AUTH_TOKEN_V2_FLAG, '1');
     }
 
+    // ── 「默认 Token」行与当前主密钥对齐（每次启动，幂等） ──
+    //
+    // devices 表里那行「默认 Token」存的是主密钥的**副本**，但只在首次创建和
+    // 上面的 v2 一次性迁移时写入 —— 用户后来手动改 `.env` 轮换 AUTH_TOKEN 时，
+    // 这行不会自动跟着变。不同步的后果很严重：
+    //   1) resolveToken 按 token 匹配 devices 行 → 旧主密钥仍然查得到 → 轮换等于没换；
+    //   2) 登录查询 `token != masterToken` 用的是新值，id=19（旧主密钥行）不再被排除、
+    //      且 id 最小 → 管理员密码登录会返回**旧主密钥**。
+    // 所以每次启动都对齐一次：只在「行存在且值 ≠ 当前主密钥」时 UPDATE，幂等无副作用。
+    // （行不存在则由上面的创建逻辑负责，这里不补建。）
+    const defaultTokenRow = db.prepare("SELECT id, token FROM devices WHERE name = '默认 Token'").get();
+    if (defaultTokenRow && defaultTokenRow.token !== authToken) {
+      db.prepare('UPDATE devices SET token = ? WHERE id = ?').run(authToken, defaultTokenRow.id);
+      note('devices「默认 Token」行已与当前 AUTH_TOKEN 对齐');
+    }
+
     // 挂到 global，供其他模块读取
     global.__AUTH_TOKEN__ = authToken;
     global.__AUTH_TOKEN_SOURCE__ = tokenSource;
