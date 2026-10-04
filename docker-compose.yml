@@ -1,6 +1,9 @@
 services:
   chatz:
-    build: .
+    # 默认直接用 GHCR 上现成的镜像（Actions 在 push / 打 tag 时自动构建并推送）
+    image: ghcr.io/yezi8430/chatz:latest
+    # 想改源码自己构建：注释掉上面那行、放开下面这行
+    # build: .
     container_name: chatz
     ports:
       # 前面挂了 Nginx Proxy Manager 时，20010 应该只允许反代到达：
