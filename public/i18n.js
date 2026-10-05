@@ -458,7 +458,14 @@
     '当前频道': 'this channel',
     '「{0}」中': 'in \u201c{0}\u201d',
     '{0}没有带 #{1} 标签的消息': '{0}has no messages tagged #{1}',
-    '没有匹配「{0}」的消息': 'No messages matching \u201c{0}\u201d'
+    '没有匹配「{0}」的消息': 'No messages matching \u201c{0}\u201d',
+
+    // ---- 只出现在静态 HTML 里、且被 <b>/<br> 切成碎片的几段 ----
+    // ⚠️ 这几条必须进精确表：DOM 遍历只认精确匹配（见 domExact 的说明），
+    //    靠 phrases 兜底的话它们在英文模式下会保持中文。
+    '修改密码、登录设备': 'Change password, signed-in devices',
+    '未订阅的私有频道）·': 'private channels they are not subscribed to) \u00b7',
+    '2 = 超级管理员（全知 + 能提升他人）。': '2 = super admin (sees everything + can promote others).'
   };
 
   // ── 长尾兜底：只用于静态 HTML 里没进 EN 表的碎片 ────────────
@@ -526,6 +533,77 @@
 
   var LANG = 'zh';
 
+  /** 按指定语言翻译（不依赖当前 LANG —— 回溯「上一次翻成了什么」要用） */
+  function tTo(s, lang) {
+    if (lang === 'zh') return s;
+    return Object.prototype.hasOwnProperty.call(EN, s) ? EN[s] : phrases(s);
+  }
+
+  /**
+   * 🔴 DOM 遍历专用：只认 EN 精确词条，不走 phrases 片段兜底。
+   *
+   * 为什么不能在这儿用 phrases：片段表里有一批 2 字通用词
+   * （是→yes / 否→no / 频道→Channel / 未读→Unread ...），
+   * 一旦拿去做子串替换，**用户的中文消息正文会被改写** ——
+   * 「备份是否完成」会变成「备份yesno完成」。
+   * 精确匹配只在整段文字恰好等于某个界面词条时才命中，误伤面小到可以接受。
+   * （app.js 里显式写的 chatzT('...') 仍然走 phrases —— 那是开发者主动包的自家文案。）
+   */
+  function domExact(s, lang) {
+    if (lang === 'zh' || !s) return s;
+    return Object.prototype.hasOwnProperty.call(EN, s) ? EN[s] : s;
+  }
+
+  /** 文本节点的渲染：保留首尾空白，只翻中间那段 */
+  function renderText(orig, lang) {
+    var core = orig.trim();
+    if (!core) return orig;
+    return orig.replace(core, domExact(core, lang));
+  }
+
+  // 🔴 用户内容跳过区：标了 data-i18n-skip 的容器里全是用户数据
+  //    （频道名 / 消息正文 / 用户名 / 设备名 / 标签 ...），一个字都不许翻。
+  var SKIP_ATTR = 'data-i18n-skip';
+
+  function inSkipZone(node) {
+    var p = node.parentNode;
+    while (p && p.nodeType === 1) {
+      if (p.hasAttribute && p.hasAttribute(SKIP_ATTR)) return true;
+      p = p.parentNode;
+    }
+    return false;
+  }
+
+  // 英→中反查表：应用就地改成的值如果是我们翻出去的英文，能反推回中文原文
+  // （app.js 里所有文案都是 chatzT() 产出的，所以这一步命中率很高）
+  var REV_EN = Object.create(null);
+  (function () {
+    for (var k in EN) {
+      if (!Object.prototype.hasOwnProperty.call(EN, k)) continue;
+      var v = EN[k];
+      if (typeof v !== 'string' || !v) continue;
+      if (HAN.test(v)) continue;            // 译文里还夹中文的不做反查
+      if (REV_EN[v] === undefined) REV_EN[v] = k;   // 撞车取第一个
+    }
+  })();
+
+  /**
+   * 对账：memo 是上次记下的中文原文，cur 是节点里现在的值。
+   * 返回「应该拿去当 key 的原文」。
+   *   - cur 没变                     → 沿用 memo
+   *   - cur 正是我们上次翻出去的样子 → 沿用 memo（正常往返）
+   *   - 否则说明应用改了值           → 认新值当原文（能反查就反查成中文）
+   */
+  function reconcile(memoVal, cur, render) {
+    if (memoVal === undefined) return cur;
+    if (memoVal === cur) return memoVal;
+    var other = (LANG === 'zh') ? 'en' : 'zh';
+    if (render(memoVal, other) === cur) return memoVal;
+    var back = REV_EN[cur];
+    if (back && HAN.test(back)) return back;
+    return cur;
+  }
+
   function applyVars(s, vars) {
     if (!vars) return s;
     return String(s).replace(/\{(\w+)\}/g, function (m, k) {
@@ -548,7 +626,7 @@
     if (s === null || s === undefined) return s;
     s = String(s);
     if (LANG === 'zh') return applyVars(s, vars);
-    var out = Object.prototype.hasOwnProperty.call(EN, s) ? EN[s] : phrases(s);
+    var out = tTo(s, 'en');
     return applyVars(out, vars);
   }
 
@@ -570,11 +648,14 @@
       var a = ATTRS[i];
       if (!el.hasAttribute(a)) continue;
       var cur = el.getAttribute(a);
-      if (memo[a] === undefined) memo[a] = cur;   // 第一次见到才记
+      // 🔴 不能「第一次见到就锁死」：应用之后可能就地改这个值
+      //    （比如未读按钮从「标已读」变「标未读」），锁死就会把旧翻译写回去。
+      //    所以每次都要跟当前值对一次账。
+      memo[a] = reconcile(memo[a], cur, domExact);
       var src = memo[a];
       // 原文不是中文 → 多半是用户数据或代码后设的值，不碰
       if (!src || !HAN.test(src)) continue;
-      var out = chatzT(src);
+      var out = domExact(src, LANG);
       if (out !== cur) el.setAttribute(a, out);
     }
   }
@@ -589,20 +670,24 @@
     while ((node = walker.nextNode())) buf.push(node);
 
     buf.forEach(function (n) {
-      var orig = ORIG_TEXT.get(n);
-      if (orig === undefined) { orig = n.nodeValue; ORIG_TEXT.set(n, orig); }
-      if (!orig || !HAN.test(orig)) return;        // 原文不含中文 = 用户数据，跳过
-      var core = orig.trim();
+      if (inSkipZone(n)) return;              // 用户内容，一律不碰
+      // 同上：值可能已被应用改过，每次都要对账，不能锁死第一次见到的
+      var src = reconcile(ORIG_TEXT.get(n), n.nodeValue, renderText);
+      ORIG_TEXT.set(n, src);
+      if (!src || !HAN.test(src)) return;        // 原文不含中文 = 用户数据，跳过
+      var core = src.trim();
       if (!core) return;
-      var target = orig.replace(core, chatzT(core));
+      var target = src.replace(core, domExact(core, LANG));
       if (target !== n.nodeValue) n.nodeValue = target;
     });
 
     // 属性
-    if (root.nodeType === 1) translateEl(root);
+    if (root.nodeType === 1 && !inSkipZone(root)) translateEl(root);
     if (root.querySelectorAll) {
       var els = root.querySelectorAll('*');
-      for (var i = 0; i < els.length; i++) translateEl(els[i]);
+      for (var i = 0; i < els.length; i++) {
+        if (!inSkipZone(els[i])) translateEl(els[i]);
+      }
     }
   }
 

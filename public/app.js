@@ -1978,9 +1978,9 @@ async function loadDiscoverList(q) {
           <div class="icon">${iconSrc}</div>
           <div class="info">
             <div class="name">${escapeHtml(ch.name)} <span class="ch-id">(ID:${ch.id})</span>${lockBadge}</div>
-            <div class="desc">${escapeHtml(ch.description || '无描述')}</div>
+            <div class="desc">${escapeHtml(ch.description || chatzT('无描述'))}</div>
           </div>
-          <button class="${ch.subscribed ? 'subscribed' : ''}">${ch.subscribed ? '已订阅' : '订阅'}</button>
+          <button class="${ch.subscribed ? 'subscribed' : ''}">${ch.subscribed ? chatzT('已订阅') : chatzT('订阅')}</button>
         </div>
       `;
     }).join('');

@@ -118,12 +118,14 @@
       <button id="adminBtn" class="side-btn" style="display:none;">管理</button>
       <button id="markAllReadBtn" class="side-btn subtle">全部已读</button>
     </div>
-    <nav id="channelList" class="channel-list"></nav>
+    <!-- data-i18n-skip：里面全是用户数据（频道名），i18n.js 的 DOM 遍历会整个跳过 -->
+    <nav id="channelList" class="channel-list" data-i18n-skip></nav>
     <div class="sidebar-footer">
       <div class="user-mini" id="userMini">
-        <div class="user-mini-avatar" id="userMiniAvatar">?</div>
+        <!-- data-i18n-skip：显示名是用户数据 -->
+        <div class="user-mini-avatar" id="userMiniAvatar" data-i18n-skip>?</div>
         <div class="user-mini-info">
-          <div class="user-mini-name" id="userMiniName">-</div>
+          <div class="user-mini-name" id="userMiniName" data-i18n-skip>-</div>
           <div id="connStatus" class="conn-status">
             <span class="dot"></span>
             <span class="text">连接中...</span>
@@ -155,8 +157,10 @@
         <button id="sendBtn" class="btn-primary">发送消息</button>
       </div>
     </header>
-    <div id="tagFilterBar" class="tag-filter-bar hidden"></div>
-    <div id="messageList" class="message-list"></div>
+    <!-- data-i18n-skip：同上，标签名是用户数据 -->
+    <div id="tagFilterBar" class="tag-filter-bar hidden" data-i18n-skip></div>
+    <!-- data-i18n-skip：消息正文 / 标题 / 标签全是用户数据，一个字都不能翻 -->
+    <div id="messageList" class="message-list" data-i18n-skip></div>
     <div id="emptyState" class="empty-state hidden">
       <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></div>
       <p id="emptyText">还没有消息</p>
