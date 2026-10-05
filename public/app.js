@@ -2145,6 +2145,18 @@ for (const p of Object.values(SETTINGS_PAGES)) {
 const ROLE_LABEL = { 0: '普通用户', 1: '管理员', 2: '超级管理员' };
 function roleLabel(r) { return chatzT(ROLE_LABEL[r] ?? '-'); }
 
+// 角色下拉里**能选**的档位。
+//
+// 1（管理员）暂时下线：服务端已经没有任何 `requireAdmin` 的调用点了（只在 auth.js 里
+// 定义着），所有带权限的接口挂的都是 requireSuper；业务层 `messageCreate.js` 也是
+// `if (!isSuper) 必须订阅` —— 管理员和普通用户走的是同一条分支。
+// 留着这个选项只会让人以为存在「中间档」，实际点进去全是 403。
+// 权限怎么重新划分还没定，先在界面上把它藏掉，服务端语义一行不动。
+//
+// ⚠️ 已经在任的 role=1 用户不在这里被改写 —— 下面渲染时会把他当前的值补进选项，
+//    否则下拉框会显示成「普通用户」而库里其实是 1，看着像数据错了。
+const SELECTABLE_ROLES = [0, 2];
+
 function showSettingsPage(key) {
   const home = document.getElementById('settingsHome');
   const back = document.getElementById('settingsBack');
@@ -2286,7 +2298,12 @@ async function loadUserMgmt() {
 
       const sel = document.createElement('select');
       sel.className = 'user-mgmt-role';
-      for (const r of [0, 1, 2]) {
+      // 可选档位见 SELECTABLE_ROLES 的注释；若这个人当前是个已下线的角色，
+      // 把它补进去如实显示（能看、也能把他挪走，但不能再让别人进这个档）
+      const roleOptions = SELECTABLE_ROLES.slice();
+      if (u.role != null && !roleOptions.includes(u.role)) roleOptions.push(u.role);
+      roleOptions.sort();
+      for (const r of roleOptions) {
         const opt = document.createElement('option');
         opt.value = String(r);
         opt.textContent = roleLabel(r);
@@ -2351,8 +2368,6 @@ async function openUserModal() {
   }
   await loadDevices();
 
-  const isAdmin = !!state.currentUser?.isAdmin;
-
   // 读配置：证书 UI 是否启用 + HTTPS 端口
   let certsUiEnabled = true;
   try {
@@ -2365,7 +2380,10 @@ async function openUserModal() {
     'certNavItem', 'certStatus', 'certCrtLabel', 'certCrtFile',
     'certKeyLabel', 'certKeyFile', 'certUploadBtn', 'certDeleteBtn',
   ];
-  const showCerts = isAdmin && certsUiEnabled;
+  // ⚠️ 用 isSuper 不是 isAdmin：证书接口是 requireSuper，普通管理员（role 1）
+  //    点进去必定 403 —— 之前这里用 isAdmin，等于给他一个点了就报错的入口。
+  //    角色 1 已暂时下线（见 SELECTABLE_ROLES），这里更要跟着收紧。
+  const showCerts = !!state.currentUser?.isSuper && certsUiEnabled;
   for (const id of certElements) {
     const el = document.getElementById(id);
     if (el) el.style.display = showCerts ? '' : 'none';
