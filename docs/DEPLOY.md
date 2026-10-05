@@ -1,6 +1,6 @@
 # 部署指南
 
-> **English**: [DEPLOY.en.md](DEPLOY.en.md)（章节级英文目录）
+> **English**: [DEPLOY.en.md](DEPLOY.en.md)（逐节对照的完整英文版）
 
 从零到生产环境的完整指南。
 
@@ -372,7 +372,10 @@ certbot certonly --standalone -d your-domain.com
 ```yaml
 services:
   chatz:
-    build: ./chatz
+    # 默认走 GHCR 现成镜像（与仓库自带的 compose 口径一致）
+    image: ghcr.io/yezi8430/chatz:latest
+    # 想改源码自己构建：注释上面那行、放开下面这行
+    # build: ./chatz
     container_name: chatz
     expose:
       - "20010"           # 只对内网暴露
@@ -615,7 +618,8 @@ Caddy 自动申请 HTTPS 证书，配置最少。
 ```yaml
 services:
   chatz:
-    build: ./chatz
+    image: ghcr.io/yezi8430/chatz:latest
+    # build: ./chatz
     container_name: chatz
     expose:
       - "20010"
@@ -679,7 +683,8 @@ Traefik 适合已有 K8s 或需要动态服务发现的场景。
 ```yaml
 services:
   chatz:
-    build: ./chatz
+    image: ghcr.io/yezi8430/chatz:latest
+    # build: ./chatz
     container_name: chatz
     expose:
       - "20010"
