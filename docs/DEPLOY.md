@@ -56,6 +56,31 @@
 > 只回一句 `Skipped - No image to be pulled`（**不报错**）—— 你以为在升级，
 > 其实一直在跑自己那份旧构建。**本文的启动命令一律按镜像模式写**（不带 `--build`）。
 
+### 不想用 compose：直接 docker run
+
+只要一个容器、不想维护 compose 文件时可以这么跑：
+
+```bash
+docker run -d --name chatz \
+  -p 20010:20010 \
+  -p 20443:20443 \
+  -v /root/chatz/data:/app/data \
+  -e TRUST_PROXY=auto \
+  --restart unless-stopped \
+  ghcr.io/yezi8430/chatz:latest
+```
+
+要注意的三点：
+
+- ⚠️ **`-v` 用绑定挂载，别用 named volume。** `data/` 就是数据库本体，
+  本文「备份与恢复」是按**目录打包**写的（`tar -czf ... data`）；换成 named volume
+  那套步骤就全对不上了。
+- ⚠️ `docker run` **没有 `env_file`**，所有变量只能 `-e` 写在命令行上。
+  好处是不受 compose 里 `environment:` 优先级的影响，坏处是改变量必须重建容器：
+  `docker rm -f chatz` 再跑一遍上面的命令（`docker restart` 改不了环境变量）。
+- 升级：`docker pull ghcr.io/yezi8430/chatz:latest && docker rm -f chatz` 再跑一遍。
+  数据全在 `/root/chatz/data`，不会被删。
+
 > 两种布局二选一，不要同时跑 —— 否则两个 compose 会抢同一个容器名 `chatz`。
 
 ---

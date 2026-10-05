@@ -181,20 +181,28 @@ Startup log of an already-settled instance:
 <summary>No clone? <code>docker run</code> works too</summary>
 
 ```bash
-docker build -t chatz .
-
 docker run -d --name chatz \
   -p 20010:20010 \
-  -v chatz-data:/app/data \
+  -p 20443:20443 \
+  -v ./data:/app/data \
   -e TRUST_PROXY=auto \
   --restart unless-stopped \
-  chatz
+  ghcr.io/yezi8430/chatz:latest
 
 docker logs chatz | grep -A3 AUTH_TOKEN
 ```
 
-Note that `docker run` has no `env_file`, so every variable must be passed with `-e`; on the
-other hand it is not affected by `environment:` precedence in compose.
+Notes:
+
+- To **build from source** (path B), run `docker build -t chatz .` first and replace the last line
+  with `chatz`.
+- ⚠️ `-v ./data:/app/data` is a **bind mount**, matching what compose does by default —
+  `data/` *is* the database (accounts, tokens, messages), so tarring that directory is the whole
+  backup. Do not switch to a named volume (`chatz-data:/app/data`); the backup instructions in the
+  deployment guide work on a directory.
+- `docker run` has no `env_file`, so every variable must be passed with `-e`; on the other hand it
+  is not affected by `environment:` precedence in compose.
+- `20443` is the built-in HTTPS port (used once you upload a certificate); drop it if unused.
 </details>
 
 ### Recommended after first sign-in

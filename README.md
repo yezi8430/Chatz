@@ -173,20 +173,26 @@ docker compose up -d --build
 <summary>不想 clone、用 <code>docker run</code> 也行</summary>
 
 ```bash
-docker build -t chatz .
-
 docker run -d --name chatz \
   -p 20010:20010 \
-  -v chatz-data:/app/data \
+  -p 20443:20443 \
+  -v ./data:/app/data \
   -e TRUST_PROXY=auto \
   --restart unless-stopped \
-  chatz
+  ghcr.io/yezi8430/chatz:latest
 
 docker logs chatz | grep -A3 AUTH_TOKEN
 ```
 
-注意 `docker run` 没有 `env_file`，所有变量都得用 `-e` 写在命令行上；
-反过来它也不受 compose 里 `environment:` 优先级的影响。
+几点说明：
+
+- **要改源码自己编**（路线 B），先 `docker build -t chatz .`，再把上面最后一行换成 `chatz`。
+- ⚠️ `-v ./data:/app/data` 用的是**绑定挂载**，跟 compose 默认一致 ——
+  `data/` 就是数据库本体（账号 / Token / 消息全在里面），整目录打包即可备份迁移。
+  别换成 named volume（`chatz-data:/app/data`），那样备份文档里的目录打包步骤就对不上了。
+- `docker run` 没有 `env_file`，所有变量都得用 `-e` 写在命令行上；
+  反过来它也不受 compose 里 `environment:` 优先级的影响。
+- `20443` 是内置 HTTPS 端口（上传证书后用），用不到可以不映射。
 </details>
 
 ### 首次登录后建议
