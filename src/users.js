@@ -438,11 +438,29 @@ router.post('/auth/login',
     //    是「默认 Token」行、绑定的是**第一个管理员**，第二个管理员登录后拿到它
     //    → 身份变成第一个人（还白拿超管权限）。就是「bob 提管理员后登录变 yezi」。
     //
-    // 现在：取该用户**第一枚** token（按 id 最小），有就复用、只更新 last_seen，
-    // 没有才新发。刻意**排除主密钥**：它属于「默认 Token」行，身份语义是不同的东西。
+    // 现在的取法（详见下面 ① ② 两步）：
+    //   ① 主密钥行登记在这个用户名下 → 用它（超管就只有这一枚，不再另发）
+    //   ② 否则复用该用户第一枚设备 token，没有才新发
+    // 复用时只更新 last_seen；配合 logout 不再删行，重新登录始终是同一枚。
     const masterToken = getAuthToken();
-    const existing = db.prepare(
-      'SELECT token FROM devices WHERE user_id = ? AND token != ? ORDER BY id ASC LIMIT 1'
+    // ① 主密钥（「默认 Token」那行）本来就登记在这个用户名下 → 直接用它，不再另发。
+    //
+    //    用户明确要求：超管也只有「默认 Token」一枚，除非主动新建设备。
+    //
+    //    安全前提：主密钥行的 user_id 是**它的登记人**（migrate 时设为第一个管理员），
+    //    只有 user.id 与之相等才会返回它 ⇒ 身份一定是本人。
+    //    ⚠️ 历史坑（不能回退成无条件复用）：以前写的是 `row.token || AUTH_TOKEN`，
+    //    任何人（包括第二个管理员）都可能拿到主密钥 → 登录后身份变成第一个人
+    //    （就是「bob 提管理员后登录变 yezi」）。所以这里必须是**按 user_id 精确匹配**，
+    //    绝不是"是管理员就给主密钥"。
+    const ownMaster = db.prepare(
+      'SELECT id, token FROM devices WHERE user_id = ? AND token = ? LIMIT 1'
+    ).get(user.id, masterToken);
+
+    // ② 否则：复用该用户第一枚非主密钥的设备 token，没有才新发
+    //    （只更新 last_seen；配合 logout 不再删行，重新登录始终是同一枚）
+    const existing = ownMaster || db.prepare(
+      'SELECT id, token FROM devices WHERE user_id = ? AND token != ? ORDER BY id ASC LIMIT 1'
     ).get(user.id, masterToken);
 
     const devName = deviceName || 'Web';
