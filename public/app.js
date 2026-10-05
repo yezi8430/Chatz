@@ -94,7 +94,16 @@ async function api(path, opts = {}) {
       ...(opts.headers || {}),
     },
   });
-  if (res.status === 401) {
+  // ⚠️⚠️ 401 一律被当成「登录状态失效」：清 token + 弹回登录页。
+  //
+  // 所以**任何「密码输错」类的接口都不能返回 401** —— 用户明明还登录着，
+  // 输错一次密码就被踢下线，是最让人懵的那种 bug（/device/:id/reveal 踩过一次，
+  // 已改成 403）。新增接口请照这个规矩来：
+  //   401 = Bearer 凭据本身无效 / 过期（真的要重新登录）
+  //   403 = 已登录，但这一步不被允许（密码错、权限不够）
+  //
+  // 前端这一侧再加一道闸：调用方显式声明 skipAuthLogout 时就不做登出跳转。
+  if (res.status === 401 && !opts.skipAuthLogout) {
     state.token = '';
     localStorage.removeItem('chatz_token');
     showLogin();
@@ -2519,9 +2528,12 @@ async function submitRevealMaster() {
 
   if (btn) btn.disabled = true;
   try {
+    // skipAuthLogout：万一服务端哪天又给它返回 401，也别把人踢下线 ——
+    // 这里是「二次验密码输错」，跟会话失效完全是两回事
     const r = await api(`/device/${dev.id}/reveal`, {
       method: 'POST',
       body: JSON.stringify({ password: pwd.value }),
+      skipAuthLogout: true,
     });
     if (!r?.token) { toast(chatzT('没拿到主密钥')); return; }
     pwd.value = '';

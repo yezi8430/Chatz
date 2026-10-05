@@ -670,6 +670,13 @@ router.post('/device/:id/reveal',
       return res.status(400).json({ error: '这一行不需要二次验证' });
     }
 
+    // 🔴 必须是 **403**，不能是 401。
+    //
+    // 前端 api() 把任何 401 都当成「登录状态失效」：清 localStorage、弹回登录页。
+    // 这里是**已登录**用户二次验密码输错 —— 他手上的会话还好好的，
+    // 不该因为输错一次密码就被踢下线（实测就是这么炸的）。
+    // 401 只用于「Bearer 凭据本身无效/过期」，语义上也不是这一档。
+    // 顺带这也和 channels.js 里频道密码错误的返回保持一致（403 + '密码错误'）。
     const user = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(req.user.id);
     if (!user || !user.password_hash || !verifyPassword(password, user.password_hash)) {
       audit.fromReq(req, {
@@ -678,7 +685,7 @@ router.post('/device/:id/reveal',
         success: false,
         meta: { reason: '密码错误' },
       });
-      return res.status(401).json({ error: '密码不正确' });
+      return res.status(403).json({ error: '密码不正确' });
     }
 
     audit.fromReq(req, { action: 'device.reveal', target: String(id), success: true });
