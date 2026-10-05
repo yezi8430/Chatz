@@ -97,7 +97,7 @@ section('3. 引用一致性（代码用到的 key ↔ 词典）');
 // 再按「必须带点」筛掉 'en' / 'zh' 这类普通字符串 —— 真正的 key 都是 a.b 形式。
 // 按**行**扫，不按字符窗口：200 字符的窗口会跨界捞到后面那行的
 // `audit.fromReq(... action: 'config.set_lang' ...)` —— 那是审计动作名，不是词条 key。
-const CALL_RE = /i18n\.(?:log|warn|error|t)\(/;
+const CALL_RE = /i18n\.(?:log|warn|error|t|tIn)\(/;
 const LIT_RE = /'([A-Za-z0-9_.]+)'/g;
 const used = new Set();
 const files = fs.readdirSync(SRC).filter((f) => f.endsWith('.js') && f !== 'serverI18n.js');
@@ -277,6 +277,26 @@ for (const k of Object.keys(zhSamples)) {
   const got = i18n.t(k, { name: i18n.t('lang.zh') });
   ok(got === zhSamples[k], 'zh: ' + k, '期望 ' + JSON.stringify(zhSamples[k]) + ' 实际 ' + JSON.stringify(got));
 }
+
+// ------------------------------------------------------------
+section('7. 预置数据（默认频道）跟着语言走');
+// ------------------------------------------------------------
+// 默认频道是 migrate 建的种子：全新库建出来是中文，引导页选了英文要在 /setup 里改名。
+// 🔴 那条改名有个前提判断「名字还是不是预置原文」—— 判断用的是 **zh 的字面值**，
+//    所以这里的 zh 值一旦被改，users.js 里那个比对就会静默失配（不再改名，也不报错）。
+//    ⇒ 把两个值钉死在测试里，改词典时会被拦下来。
+i18n.setLang('zh');
+ok(i18n.t('channel.defaultName') === '默认频道', 'zh 预置频道名 = 默认频道',
+  '实际: ' + i18n.t('channel.defaultName'));
+i18n.setLang('en');
+ok(i18n.t('channel.defaultName') === 'Default channel', 'en 预置频道名 = Default channel',
+  '实际: ' + i18n.t('channel.defaultName'));
+ok(i18n.tIn('channel.defaultName', 'zh') === '默认频道',
+  'tIn(zh) 能按指定语言取 —— 判断「是不是预置原文」必须用它（当前可能是英文）');
+ok(i18n.tIn('channel.defaultName', 'en') === 'Default channel', 'tIn(en) 正确');
+const seedZh = i18n.tIn('channel.defaultName', 'zh');
+const seedEn = i18n.tIn('channel.defaultName', 'en');
+ok(seedZh !== seedEn, '两种语言的预置名必须不同（否则「是不是预置原文」判不出来）');
 
 // ============================================================
 console.log('');

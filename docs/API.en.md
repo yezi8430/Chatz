@@ -335,7 +335,9 @@ Constraints:
 - `password` **6–128** chars (same as ordinary registration — admins get no extra strictness)
 - `lang` optional, `en` / `zh`; only those two literals are honoured, anything else is ignored. It
   decides what language the **server log** speaks (stored in `meta.lang`) and is the one moment
-  where no super-admin exists yet but the language still gets decided
+  where no super-admin exists yet but the language still gets decided. It also renames the
+  pre-seeded "Default channel" to match — the front-end i18n never touches channel names
+  (that is user data)
 - `email` optional, used by "forgot password"; malformed → `400`, already taken → `409`
 - setup already completed → `403`
 
@@ -345,8 +347,13 @@ On success it:
    user, it does not create a second admin**, so you never end up with two admins and the default
    channel subscription it already holds survives
 2. Sets `meta.setup_completed` to `'1'`, closing the endpoint
-3. If `lang` is `en` / `zh`, writes it to `meta.lang` — the container log follows it from then on
-4. Generates and returns the master key, so the setup page can enter the app without a second login
+3. If `lang` is `en` / `zh`, writes it to `meta.lang` — the container log follows it from then on.
+   When the language actually changes it logs `🌐 log language switched to English` **in the new
+   language**, so you can confirm it without restarting
+4. **Renames the pre-seeded "Default channel"** to match (`默认频道` ⇄ `Default channel`).
+   🔴 Only if its name is still the seeded original — a channel the user renamed is never
+   overwritten by a language switch
+5. Generates and returns the master key, so the setup page can enter the app without a second login
 
 > ⚠️ The master key is **generated at this step** (changed 2026-10-05); before it, no master key
 > exists at all and none is ever written to the container log. What comes back is the master key

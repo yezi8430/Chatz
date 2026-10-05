@@ -252,11 +252,16 @@ function migrate(db) {
     }
 
     // 默认频道
+    //
+    // 名字走 i18n：**全新库**在跑到这里时 meta.lang 还是空的 ⇒ 建出来是中文，
+    // 随后引导页（POST /setup）若选了英文会把它改名（见 users.js）。
+    // 而无头安装（.env 里写了 LOG_LANG=en）在这里就已经是英文了，一步到位。
+    // ⚠️ 已经存在的频道不会被改名 —— 那是用户数据，只有 /setup 那一回会动它。
     let defaultChannel = db.prepare('SELECT * FROM channels WHERE id = 1').get();
     if (!defaultChannel) {
       db.prepare(
         'INSERT INTO channels (id, name, description, is_public, created_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(1, '默认频道', 'v1 数据自动归属', 1, Date.now());
+      ).run(1, i18n.t('channel.defaultName'), i18n.t('channel.defaultDesc'), 1, Date.now());
     }
 
     db.prepare('UPDATE applications SET channel_id = 1 WHERE channel_id IS NULL').run();

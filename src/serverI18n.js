@@ -334,6 +334,12 @@ Password length {min}-{max} chars. Resetting does not revoke any signed-in devic
   },
 
   // ── 日志语言本身 ────────────────────────────────────────
+  // ── 预置数据（种子）────────────────────────────────────
+  // 全新实例由 migrate 建出来的东西。它不是用户数据，所以应该跟着语言走；
+  // 但**只在还是预置原文时才动** —— 用户改过名就绝不能覆盖（见 users.js 的 /setup）。
+  'channel.defaultName': { zh: '默认频道', en: 'Default channel' },
+  'channel.defaultDesc': { zh: 'v1 数据自动归属', en: 'legacy v1 data fallback' },
+
   'lang.changed': { zh: '🌐 日志语言已切换为 {name}', en: '🌐 log language switched to {name}' },
   'lang.zh': { zh: '中文', en: 'Chinese' },
   'lang.en': { zh: '英文', en: 'English' },
@@ -420,8 +426,22 @@ function t(key, vars) {
   return applyVars(tpl, vars);
 }
 
+/**
+ * 按**指定**语言取文案（不看当前 LANG）。
+ *
+ * 用来判断「这条预置数据现在是不是还是种子原文」—— 判断的那一侧很可能和当前
+ * 语言相反（比如当前已经是英文，要去比对中文原文），所以不能用 t()。
+ */
+function tIn(key, lang, vars) {
+  const e = DICT[key];
+  if (!e) return applyVars(String(key), vars);
+  const tpl = (lang === 'en' && e.en) ? e.en : e.zh;
+  return applyVars(tpl, vars);
+}
+
 const out = {
   t,
+  tIn,
   setLang,
   getLang,
   isEn,

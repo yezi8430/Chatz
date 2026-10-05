@@ -301,7 +301,34 @@ router.post('/setup',
     // 🔴 只接受 en / zh 两个字面值（saveLang 内部还会 normalize 一次），
     //    别的值一律忽略 —— 语言是整机设置，不能被塞进任意字符串。
     const setupLang = req.body && req.body.lang;
-    if (setupLang === 'en' || setupLang === 'zh') i18n.saveLang(db, setupLang);
+    if (setupLang === 'en' || setupLang === 'zh') {
+      const beforeLang = i18n.getLang();
+      const nowLang = i18n.saveLang(db, setupLang);
+      // 和 PUT /config/lang 保持一致：切过去的那一行**用新语言**打。
+      // 不然装完想确认"日志到底说哪种语言"只能去重启看横幅。
+      if (nowLang !== beforeLang) {
+        i18n.log('lang.changed', { name: i18n.t(nowLang === 'en' ? 'lang.en' : 'lang.zh') });
+      }
+    }
+
+    // ── 预置数据的名字也跟着语言走 ──
+    //
+    // 默认频道是 migrate 建出来的种子（全新库那时 meta.lang 还空 ⇒ 中文）。
+    // 界面选了英文却看到一个「默认频道」，等于白选 —— 前端 i18n 不会碰频道名
+    // （那是用户数据，translateTree 只在 applyDom 时跑一遍，动态渲染的不翻）。
+    // ⇒ 只能在这一刻、在服务端把它改成英文。
+    //
+    // 🔴 **只动"还是预置原文"的那一条**：名字只要被改过（用户自己起的、或已经是
+    //    另一种语言的预置名）就一律不动 —— 用户数据绝不能被语言切换覆盖。
+    try {
+      const zhName = i18n.tIn('channel.defaultName', 'zh');
+      const enName = i18n.tIn('channel.defaultName', 'en');
+      const seed = db.prepare('SELECT id, name FROM channels WHERE id = 1').get();
+      if (seed && (seed.name === zhName || seed.name === enName)) {
+        db.prepare('UPDATE channels SET name = ?, description = ? WHERE id = 1')
+          .run(i18n.t('channel.defaultName'), i18n.t('channel.defaultDesc'));
+      }
+    } catch (e) { /* 改不动就保持原样：频道名不对只是难看，不该让初始化失败 */ }
 
     // ── 主密钥：全新安装时到这一刻才生成 ──
     //
@@ -337,7 +364,11 @@ router.post('/setup',
 
     const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(admin.id);
 
-    audit.fromReq(req, { action: 'setup.complete', target: String(admin.id), meta: { username } });
+    audit.fromReq(req, {
+      action: 'setup.complete',
+      target: String(admin.id),
+      meta: { username, lang: i18n.getLang(), langLocked: i18n.isLocked() },
+    });
 
     res.json({ user: rowToUser(updated), token: masterToken });
   }
