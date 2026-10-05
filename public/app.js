@@ -2098,14 +2098,41 @@ function lockPasswordSubmit(seconds) {
 // ============================================================
 // 原来的账户面板是一条长列表，头像、背景、证书、设备全挤在一起 ——
 // 改成「首页列出分类 → 点进去是具体设置」，每类只装自己的东西。
+// ⚠️ title 必须是**惰性**的：写成 chatzT('外观') 会在脚本加载时就定死，
+//    切语言后设置页标题不会跟着变（实测踩过）。下面统一用 labelKey + getter。
 const SETTINGS_PAGES = {
-  appearance: { el: 'settingsAppearance', title: chatzT('外观') },
-  security:   { el: 'settingsSecurity',   title: chatzT('安全与登录') },
-  certs:      { el: 'settingsCerts',      title: chatzT('HTTPS 证书') },
-  users:      { el: 'settingsUsers',      title: chatzT('用户管理') },
+  appearance: { el: 'settingsAppearance', labelKey: '外观' },
+  security:   { el: 'settingsSecurity',   labelKey: '安全与登录' },
+  certs:      { el: 'settingsCerts',      labelKey: 'HTTPS 证书' },
+  users:      { el: 'settingsUsers',      labelKey: '用户管理' },
 };
 
-const ROLE_LABEL = { 0: chatzT('普通用户'), 1: chatzT('管理员'), 2: chatzT('超级管理员') };
+/**
+ * 给「{ key, labelKey }」这类表项挂一个 .label getter，值 = chatzT(labelKey)。
+ *
+ * 为什么用 getter 而不是直接存字符串：这些表是模块级常量，加载时求值一次就定死了；
+ * 挂 getter 后每次读都重新翻译，切语言即时生效，调用方 `t.label` 的写法还不用改。
+ */
+function lazyLabel(list) {
+  for (const it of list) {
+    Object.defineProperty(it, 'label', {
+      configurable: true,
+      get() { return chatzT(this.labelKey); }
+    });
+  }
+  return list;
+}
+
+for (const p of Object.values(SETTINGS_PAGES)) {
+  Object.defineProperty(p, 'title', {
+    configurable: true,
+    get() { return chatzT(this.labelKey); }
+  });
+}
+
+// 同样是惰性：ROLE_LABEL[r] 直接给中文 key，显示时再翻
+const ROLE_LABEL = { 0: '普通用户', 1: '管理员', 2: '超级管理员' };
+function roleLabel(r) { return chatzT(ROLE_LABEL[r] ?? '-'); }
 
 function showSettingsPage(key) {
   const home = document.getElementById('settingsHome');
@@ -2131,7 +2158,14 @@ function showSettingsPage(key) {
   const body = document.querySelector('#userModal .modal-body');
   if (body) body.scrollTop = 0;
 
+  // 记住当前子页：切语言时要能原样重开（见文件末尾 chatz:langchange 的处理）
+  state.settingsPage = key || null;
+
+  // 每片子页的数据是 JS 渲染的，进页时拉一次；切语言重开时也会走到这里
   if (key === 'users') loadUserMgmt();
+  if (key === 'security') loadDevices();
+  if (key === 'certs') loadCertStatus();
+  if (key === 'appearance') loadBackgroundStatus();
 }
 
 // ============ 用户管理（仅超级管理员） ============
@@ -2244,7 +2278,7 @@ async function loadUserMgmt() {
       for (const r of [0, 1, 2]) {
         const opt = document.createElement('option');
         opt.value = String(r);
-        opt.textContent = ROLE_LABEL[r];
+        opt.textContent = roleLabel(r);
         if (u.role === r) opt.selected = true;
         sel.appendChild(opt);
       }
@@ -2266,7 +2300,7 @@ async function loadUserMgmt() {
 
 async function changeUserRole(u, role, sel) {
   const name = u.displayName || u.username;
-  if (!confirm(chatzT('把「{0}」的角色改成「{1}」？', [name, ROLE_LABEL[role]]))) {
+  if (!confirm(chatzT('把「{0}」的角色改成「{1}」？', [name, roleLabel(role)]))) {
     sel.value = String(u.role); // 撤销界面上的改动
     return;
   }
@@ -2629,29 +2663,31 @@ async function finishLogout() {
 
 // ============ 路由规则 ============
 
-const CONDITION_TYPES = [
-  { key: 'priority_gte', label: chatzT('优先级 ≥'), type: 'number' },
-  { key: 'priority_lte', label: chatzT('优先级 ≤'), type: 'number' },
-  { key: 'priority_eq', label: chatzT('优先级 ='), type: 'number' },
-  { key: 'body_matches', label: chatzT('内容匹配（正则）'), type: 'text' },
-  { key: 'title_matches', label: chatzT('标题匹配（正则）'), type: 'text' },
-  { key: 'channel', label: chatzT('频道名 ='), type: 'text' },
-  { key: 'channel_id', label: chatzT('频道 ID ='), type: 'number' },
-  { key: 'source_app', label: chatzT('来源应用 ='), type: 'text' },
-  { key: 'time_between', label: chatzT('时间段'), type: 'time_pair' },
-  { key: 'tag_includes', label: chatzT('包含标签'), type: 'tags' },
-];
+// ⚠️ 这两张表的 label 同样是**惰性**的（见 lazyLabel 的注释）：
+//    直接写 chatzT(...) 会在加载时定死，切语言后规则编辑器的下拉还是旧语言。
+const CONDITION_TYPES = lazyLabel([
+  { key: 'priority_gte', labelKey: '优先级 ≥', type: 'number' },
+  { key: 'priority_lte', labelKey: '优先级 ≤', type: 'number' },
+  { key: 'priority_eq', labelKey: '优先级 =', type: 'number' },
+  { key: 'body_matches', labelKey: '内容匹配（正则）', type: 'text' },
+  { key: 'title_matches', labelKey: '标题匹配（正则）', type: 'text' },
+  { key: 'channel', labelKey: '频道名 =', type: 'text' },
+  { key: 'channel_id', labelKey: '频道 ID =', type: 'number' },
+  { key: 'source_app', labelKey: '来源应用 =', type: 'text' },
+  { key: 'time_between', labelKey: '时间段', type: 'time_pair' },
+  { key: 'tag_includes', labelKey: '包含标签', type: 'tags' },
+]);
 
-const ACTION_TYPES = [
-  { key: 'set_priority', label: chatzT('设为优先级'), type: 'number' },
-  { key: 'add_tag', label: chatzT('加标签'), type: 'text' },
-  { key: 'remove_tag', label: chatzT('移除标签'), type: 'text' },
-  { key: 'set_silent', label: chatzT('静默'), type: 'bool' },
-  { key: 'broadcast_to', label: chatzT('转发到频道 ID'), type: 'channels' },
-  { key: 'add_prefix', label: chatzT('加前缀'), type: 'text' },
-  { key: 'call_webhook', label: chatzT('调用 Webhook'), type: 'text' },
-  { key: 'drop', label: chatzT('丢弃消息'), type: 'none' },
-];
+const ACTION_TYPES = lazyLabel([
+  { key: 'set_priority', labelKey: '设为优先级', type: 'number' },
+  { key: 'add_tag', labelKey: '加标签', type: 'text' },
+  { key: 'remove_tag', labelKey: '移除标签', type: 'text' },
+  { key: 'set_silent', labelKey: '静默', type: 'bool' },
+  { key: 'broadcast_to', labelKey: '转发到频道 ID', type: 'channels' },
+  { key: 'add_prefix', labelKey: '加前缀', type: 'text' },
+  { key: 'call_webhook', labelKey: '调用 Webhook', type: 'text' },
+  { key: 'drop', labelKey: '丢弃消息', type: 'none' },
+]);
 
 let editingRouteId = null;
 let editingConditions = [];
@@ -4072,5 +4108,12 @@ window.addEventListener('chatz:langchange', () => {
     if (typeof fn === 'function') {
       try { fn(); } catch (e) { /* 单个画失败不该连累其它 */ }
     }
+  }
+
+  // 设置弹窗：静态部分由 i18n 翻，但设备列表 / 证书状态 / 用户列表 / 背景状态
+  // 都是 JS 渲染的，得把当前子页重开一次才会跟着变。
+  const modal = document.getElementById('userModal');
+  if (modal && !modal.classList.contains('hidden')) {
+    try { showSettingsPage(state.settingsPage); } catch (e) {}
   }
 });

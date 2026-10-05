@@ -554,35 +554,50 @@
 
   var ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
 
+  // 🔴 原文备忘录。
+  //    翻译是**就地改写** DOM 的：中文 → 英文之后，节点里只剩英文。
+  //    再用 chatzT() 去翻它是翻不回中文的（中文模式下 t(s) 直接返回 s）。
+  //    所以第一次见到就记住中文原文，之后永远拿原文当 key —— 这样来回切才可逆，
+  //    不用刷新页面（2026-10-05 实测：不记原文就「切英文实时、切回中文要刷新」）。
+  var ORIG_TEXT = new WeakMap();   // 文本节点 → 原始 nodeValue
+  var ORIG_ATTR = new WeakMap();   // 元素     → { attr名: 原始值 }
+
   function translateEl(el) {
     if (!el || el.nodeType !== 1) return;
-    var i, a;
-    for (i = 0; i < ATTRS.length; i++) {
-      a = ATTRS[i];
+    var memo = ORIG_ATTR.get(el);
+    if (!memo) { memo = {}; ORIG_ATTR.set(el, memo); }
+    for (var i = 0; i < ATTRS.length; i++) {
+      var a = ATTRS[i];
       if (!el.hasAttribute(a)) continue;
-      var av = el.getAttribute(a);
-      if (!av || !HAN.test(av)) continue;
-      var av2 = chatzT(av);
-      if (av2 !== av) el.setAttribute(a, av2);
+      var cur = el.getAttribute(a);
+      if (memo[a] === undefined) memo[a] = cur;   // 第一次见到才记
+      var src = memo[a];
+      // 原文不是中文 → 多半是用户数据或代码后设的值，不碰
+      if (!src || !HAN.test(src)) continue;
+      var out = chatzT(src);
+      if (out !== cur) el.setAttribute(a, out);
     }
   }
 
   function translateTree(root) {
     if (!root) return;
-    // 文本节点
+
+    // ⚠️ 这里**不能**先筛「含中文的节点」：翻成英文后节点里就没中文了，
+    //    下一轮（切回中文）会被筛掉，永远翻不回去。所以要遍历全部文本节点。
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     var node, buf = [];
-    while ((node = walker.nextNode())) {
-      if (node.nodeValue && HAN.test(node.nodeValue)) buf.push(node);
-    }
+    while ((node = walker.nextNode())) buf.push(node);
+
     buf.forEach(function (n) {
-      var raw = n.nodeValue;
-      var core = raw.trim();
+      var orig = ORIG_TEXT.get(n);
+      if (orig === undefined) { orig = n.nodeValue; ORIG_TEXT.set(n, orig); }
+      if (!orig || !HAN.test(orig)) return;        // 原文不含中文 = 用户数据，跳过
+      var core = orig.trim();
       if (!core) return;
-      var out = chatzT(core);
-      if (out === core) return;
-      n.nodeValue = raw.replace(core, out);
+      var target = orig.replace(core, chatzT(core));
+      if (target !== n.nodeValue) n.nodeValue = target;
     });
+
     // 属性
     if (root.nodeType === 1) translateEl(root);
     if (root.querySelectorAll) {
