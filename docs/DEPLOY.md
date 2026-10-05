@@ -36,12 +36,25 @@
 
 ### 两种 compose 布局
 
-仓库里自带的 `docker-compose.yml` 是**单容器版**（`build: .`），直接放在项目根目录，
-对应方式一和方式二。
+仓库里自带的 `docker-compose.yml` 是**单容器版**（默认 `image: ghcr.io/yezi8430/chatz:latest`，
+拉现成镜像；`build: .` 那行是注释掉的），直接放在项目根目录，对应方式一和方式二。
 
 方式三 / 四 / 五需要额外挂一个反代容器，用的是**父目录布局**：把 Chatz 项目
-放进一个子目录，父目录放一个新的 `docker-compose.yml`（`build: ./chatz`）。
+放进一个子目录，父目录放一个新的 `docker-compose.yml`（同样默认走 `image:`）。
 本文示例以 `/root/chatz/` 作为父目录、`/root/chatz/chatz/` 作为项目目录。
+
+### 镜像模式 vs 本地构建（本文所有命令按**镜像模式**写）
+
+| | 镜像模式（默认，推荐） | 本地构建（改源码时才用） |
+|---|---|---|
+| compose 里 | `image: ghcr.io/yezi8430/chatz:latest` | `build: .`（`image:` 必须注释掉） |
+| 首次启动 | `docker compose up -d` | `docker compose up -d --build` |
+| 升级 | `docker compose pull && docker compose up -d` | `git pull && docker compose up -d --build` |
+
+> 🔴 **`image:` 和 `build:` 只能留一个。** 两个同时开着时，本地构建产物会被打上
+> `ghcr.io/yezi8430/chatz:latest` 标签、把远端镜像顶掉，此后 `docker compose pull`
+> 只回一句 `Skipped - No image to be pulled`（**不报错**）—— 你以为在升级，
+> 其实一直在跑自己那份旧构建。**本文的启动命令一律按镜像模式写**（不带 `--build`）。
 
 > 两种布局二选一，不要同时跑 —— 否则两个 compose 会抢同一个容器名 `chatz`。
 
@@ -228,7 +241,7 @@ Chatz 自带 HTTPS，上传证书即可，不用额外组件。
 2. 启动 Chatz
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 3. 登录网页 → 右上角 👤 → HTTPS 证书
@@ -561,7 +574,7 @@ crontab -e
 
 ```bash
 cd /root/chatz
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f nginx --tail=20
 ```
 
@@ -623,7 +636,7 @@ chatz.your-domain.com {
 ### 启动
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f caddy --tail=20
 ```
 
@@ -712,7 +725,7 @@ chmod 600 acme.json
 ### 启动
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f traefik --tail=20
 ```
 
@@ -807,7 +820,7 @@ mv chatz chatz-old
 tar -xzf /root/chatz-backups/chatz-20260921-0300.tar.gz
 
 # 4. 启动（仍在父目录，用父级的 compose）
-docker compose up -d --build
+docker compose up -d
 
 # 5. 验证
 curl http://localhost:20010/health
@@ -955,16 +968,14 @@ cd /root/chatz/chatz
 # 1. 备份
 cp -r . ../chatz.bak-$(date +%Y%m%d)
 
-# 2. 拉新代码（如果从 git）
-git pull
+# 2. 拉新版本（镜像模式：拉镜像；本地构建模式：git pull）
+docker compose pull
 
-# 或手动改文件
-
-# 3. 重建
+# 3. 重建（让容器用上新镜像）
 #    单容器布局：就在当前目录
-docker compose up -d --build
+docker compose up -d
 #    反代布局：回到父目录
-# cd /root/chatz && docker compose up -d --build
+# cd /root/chatz && docker compose up -d
 
 # 4. 验证
 docker compose logs -f --tail=30
@@ -975,7 +986,7 @@ curl http://localhost:20010/health
 bash verify-full.sh
 
 #    · 0c 段：把本地 public/ 与线上**正在伺服**的字节比 sha256
-#      —— 专门用来抓「改了前端但忘了 --build」这个高频坑
+#      —— 专门用来抓「线上前端不是最新那份」（本地构建忘 --build / 镜像模式忘 pull）
 #    · 8.6 段：验证消息聚合（含主卡去图、aggChildren 含原消息本身）
 #    · 8.6b 段（默认跳过）：AGG_TEST_LIFETIME=1 bash verify-full.sh
 #      需先把 AGG_MAX_LIFETIME_MS 临时调小，验「寿命到了就另起一条、不再续命」
@@ -1017,8 +1028,11 @@ curl http://localhost:20010/health
 # 启动
 docker compose up -d
 
-# 重建（改了 src/ 或 public/ 之后必须带 --build）
-docker compose up -d --build
+# 升级（镜像模式：先拉镜像）
+docker compose pull && docker compose up -d
+
+# 本地构建模式：改了 src/ 或 public/ 之后必须带 --build，只 restart 不生效
+# docker compose up -d --build
 
 # 停止
 docker compose down
@@ -1473,7 +1487,7 @@ docker run --rm --entrypoint sh chatz -c 'ls -R /app/public /app/src | grep -i b
 - [ ] 用了反代就设了 `TRUST_PROXY`（否则所有人被算成同一个 IP，一人触发限速全站 429）
 - [ ] 端口能被公网直连时没用 `TRUST_PROXY=1` / `2` / `true`（直连 + 伪造 XFF 可取任意 IP）
 - [ ] 已测试恢复流程
-- [ ] 每次部署后跑过一次 `verify-full.sh`（全站接口自检；`0c` 段能照出「前端忘了 `--build`」）
+- [ ] 每次部署后跑过一次 `verify-full.sh`（全站接口自检；`0c` 段能照出「线上前端不是最新那份」）
 
 ---
 
@@ -1486,9 +1500,10 @@ npm install
 DB_PATH=./data/app.db PORT=20010 node src/index.js
 ```
 
-> ⚠️ `Dockerfile` 里两条 `COPY`（`src ./src`、`public ./public`）都是**整目录拷贝**，
-> 所以改了后端**或**前端都必须 `--build`，只 `restart` 不会生效；
-> 改完还要**硬刷新**浏览器，别只按 F5 拿缓存。
+> ⚠️ **只在本地构建模式下才需要 `--build`**：`Dockerfile` 里两条 `COPY`
+> （`src ./src`、`public ./public`）都是**整目录拷贝**，所以改了后端**或**前端
+> 都必须重新 `--build`，只 `restart` 不会生效；改完还要**硬刷新**浏览器，别只按 F5 拿缓存。
+> 用 GHCR 镜像的话没有这一步 —— `docker compose pull && docker compose up -d` 就行。
 >
 > ⚠️ `COPY` **不看 `.gitignore`**，目录下任何 `*.bak` 都会被原样打包进镜像。
 > 其中 `public/` 下的尤其危险 —— 这个目录由 `express.static` **免鉴权**伺服，

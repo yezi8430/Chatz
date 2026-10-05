@@ -78,37 +78,56 @@
 - Docker Compose v2
 - （可选）已备案域名 + SSL 证书
 
-### 一键部署
+### 部署：两条路，选一条
+
+仓库里的 `docker-compose.yml` 默认是**路线 A**（`image: ghcr.io/yezi8430/chatz:latest`，
+`build: .` 是注释掉的）。想改源码自己编才走路线 B。
+
+#### 路线 A：直接用 GHCR 镜像（默认，推荐）
+
+每次推到主分支，GitHub Actions 会自动构建并推送到 `ghcr.io/yezi8430/chatz`
+（镜像是 `linux/amd64`）。
 
 ```bash
-git clone <your-repo> chatz
+git clone https://github.com/yezi8430/Chatz.git chatz
 cd chatz
-docker compose up -d --build
+docker compose up -d
 ```
 
-### 或者直接拉现成的镜像（GHCR）
-
-每次推到主分支，GitHub Actions 会自动构建并推送到
-`ghcr.io/yezi8430/chatz`（镜像是 `linux/amd64`）。
-
-```bash
-docker pull ghcr.io/yezi8430/chatz:latest
-```
-
-想让 NAS 直接拉镜像而不是本地编译，把 compose 里的 `build: .` 换成：
-
-```yaml
-services:
-  chatz:
-    image: ghcr.io/yezi8430/chatz:latest
-    # build: .          ← 本地编译那条注释掉（或保留，用 --build 时优先本地编译）
-    container_name: chatz
-    ...
-```
+升级（出新版本后）：
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+不需要 `--build` —— 这条路线根本没有本地构建这一步。
+
+#### 路线 B：改源码、本地编译
+
+先把 `docker-compose.yml` 改成这样（`image` 与 `build` **只能留一个**）：
+
+```yaml
+services:
+  chatz:
+    # image: ghcr.io/yezi8430/chatz:latest   ← 注释掉
+    build: .                                 ← 放开这行
+    container_name: chatz
+    ...
+```
+
+然后：
+
+```bash
+docker compose up -d --build
+```
+
+改了 `src/` 或 `public/` 之后**必须重新 `--build`**：这两目录是 `COPY` 进镜像的，
+只 `restart` 不会生效（前端还要顺手硬刷新一次浏览器）。
+
+> 🔴 **两条路不要同时开着。** `image:` 和 `build:` 同时存在时，本地构建出来的镜像会被
+> 打上 `ghcr.io/yezi8430/chatz:latest` 这个标签、把远端镜像顶掉，之后
+> `docker compose pull` 只会回一句 `Skipped - No image to be pulled`（**不报错**），
+> 你以为在升级，其实一直在跑自己那份旧构建。
 
 > 标签策略：主分支打 `latest` + `sha-<短提交号>`；打 `v1.2.3` 这种标签时还会出
 > `1.2.3` / `1.2`。**回滚靠 `sha-xxxx` 那个标签** —— 只认 `latest` 的话回滚是碰运气。
@@ -118,6 +137,10 @@ docker compose pull && docker compose up -d
 
 > **`.env` 是可选的**：compose 里写的是 `required: false`，文件不存在时 Compose 静默跳过，
 > 所以新装只要 `clone` + `up` 两步。想自定义变量时再 `cp .env.example .env`。
+> ⚠️ 从样例复制出来的每一行**行首都带 `#`**（= 不生效）。要启用哪个变量，
+> **删掉那一行的 `#`** —— 留着 `#` 的值跟没写一样，而且不报任何错。
+> 自查：`docker compose config | grep 变量名`。改完还要 `docker compose up -d --force-recreate`
+> （`restart` 不重读 env_file）。
 > ⚠️ 这个写法要求 Docker Compose **≥ 2.24.0**；更老的版本改用一个空的 `.env` 文件即可。
 
 启动后日志长这样（已跑过一次的稳定状态）：

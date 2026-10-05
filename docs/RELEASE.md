@@ -84,5 +84,12 @@ curl -o docker-compose.yml \
 
 - `.env` 已在 `.gitignore` 里，**任何真实密钥都不要写进仓库 / 文档**。
   `src/tokenGen.js`、`docs/*.md` 里的示例必须是 `cz.xxxxxxxx...` 这种占位符。
-- 换主密钥：改 `.env` 的 `AUTH_TOKEN`，然后 `docker compose up -d`。
+- 换主密钥：改 `.env` 的 `AUTH_TOKEN`，然后 `docker compose up -d --force-recreate`。
   启动时 `src/migrate.js` 会把 devices 表的「默认 Token」行同步成新值。
+  🔴 两个高频坑（2026-10-05 实测）：
+  - `.env` 里那行**行首还留着 `#`** ⇒ 效果等同没设，而 compose 是 `required: false`，
+    一点错都不报。自查 `docker compose config | grep AUTH_TOKEN`。
+  - 只做 `docker compose restart` / 普通 `up -d` ⇒ **不重读 env_file**，值进不了容器。
+    必须 `--force-recreate`。
+  换完看日志：`AUTH_TOKEN 就绪 [环境变量]` = 成功；`[数据库（首次生成时已打印）]` = 没换掉。
+  超管还要重新登录一次（他的登录 token 就是主密钥）。

@@ -83,37 +83,56 @@ cannot see their apps or rules.
 - Docker Compose v2
 - (optional) a domain name + SSL certificate
 
-### One-liner
+### Deploy: two paths, pick one
 
-```bash
-git clone <your-repo> chatz
-cd chatz
-docker compose up -d --build
-```
+The shipped `docker-compose.yml` defaults to **path A** (`image: ghcr.io/yezi8430/chatz:latest`,
+with `build: .` commented out). Use path B only if you want to edit the source and build locally.
 
-### Or pull a ready-made image (GHCR)
+#### Path A: use the GHCR image (default, recommended)
 
 Every push to the main branch makes GitHub Actions build and push
 `ghcr.io/yezi8430/chatz` (image is `linux/amd64`).
 
 ```bash
-docker pull ghcr.io/yezi8430/chatz:latest
+git clone https://github.com/yezi8430/Chatz.git chatz
+cd chatz
+docker compose up -d
 ```
 
-To make your NAS pull the image instead of building locally, replace `build: .` in compose with:
-
-```yaml
-services:
-  chatz:
-    image: ghcr.io/yezi8430/chatz:latest
-    # build: .          ← comment out the local build (or keep it; --build prefers local)
-    container_name: chatz
-    ...
-```
+Upgrade (after a new release):
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+No `--build` here — on this path there is no local build step at all.
+
+#### Path B: edit the source, build locally
+
+First change `docker-compose.yml` (**keep only one** of `image` / `build`):
+
+```yaml
+services:
+  chatz:
+    # image: ghcr.io/yezi8430/chatz:latest   ← comment out
+    build: .                                 ← uncomment
+    container_name: chatz
+    ...
+```
+
+Then:
+
+```bash
+docker compose up -d --build
+```
+
+After touching `src/` or `public/` you **must `--build` again**: both directories are `COPY`ed
+into the image, so a plain `restart` has no effect (and hard-refresh the browser for the frontend).
+
+> 🔴 **Never leave both enabled.** With `image:` and `build:` present at the same time, the locally
+> built image gets tagged `ghcr.io/yezi8430/chatz:latest` and shadows the remote one. From then on
+> `docker compose pull` just prints `Skipped - No image to be pulled` (**no error**) — you think
+> you are upgrading while actually running your own stale build.
 
 > Tag policy: the main branch produces `latest` + `sha-<short-sha>`; pushing a tag like `v1.2.3`
 > additionally produces `1.2.3` / `1.2`. **Roll back using the `sha-xxxx` tag** — relying on
@@ -125,6 +144,10 @@ click "Create admin", and you are done. **No `docker logs`, no hunting for a tok
 > **`.env` is optional**: compose declares it `required: false`, so Compose silently skips a
 > missing file — a fresh install only needs `clone` + `up`. Create it with `cp .env.example .env`
 > when you want to override variables.
+> ⚠️ Every line copied from the sample starts with `#` (i.e. inactive). To enable a variable,
+> **delete the leading `#`** — a commented-out value is the same as not setting it, and nothing
+> complains. Verify with `docker compose config | grep NAME`, and remember to run
+> `docker compose up -d --force-recreate` afterwards (`restart` does not re-read `env_file`).
 > ⚠️ That syntax requires Docker Compose **≥ 2.24.0**; on older versions just ship an empty `.env`.
 
 Startup log of an already-settled instance:
