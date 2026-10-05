@@ -2,12 +2,12 @@ services:
   chatz:
     # 默认直接用 GHCR 上现成的镜像（Actions 在 push / 打 tag 时自动构建并推送）
     #
-    # 镜像标签怎么选：
-    #   1.0.0  ← 钉死到某一个版本（推荐生产用，升级要自己改这里，行为可预期）
-    #   1.0    ← 跟随 1.0.x 的补丁更新（发 v1.0.1 后 pull 会自动拿到）
-    #   latest ← 跟随主分支最新构建（可能带上还没发版的改动）
+    # 镜像标签怎么选（默认 latest，升级不用改这个文件）：
+    #   latest ← 跟随主分支最新构建，push 完 pull 就能拿到（默认）
+    #   1.0    ← 只跟随 1.0.x 补丁，升到 1.1 要手动改一次
+    #   1.0.0  ← 钉死到某一个版本，升级必须自己改这里
     # 仓库没有 tag 时只有 latest / main / sha-xxxx；打 tag 后才会出现 1.0.0 / 1.0
-    image: ghcr.io/yezi8430/chatz:1.0.0
+    image: ghcr.io/yezi8430/chatz:latest
     # 想改源码自己构建：注释掉上面那行、放开下面这行
     # build: .
     container_name: chatz

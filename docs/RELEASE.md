@@ -59,12 +59,13 @@ curl -o docker-compose.yml \
 
 ## 服务器上该用哪个标签
 
-- **生产推荐 `1.0.0`**：钉死版本，`docker compose pull` 不会偷偷把你升上去。
-- `1.0`：自动跟随 1.0.x 补丁。
-- `latest`：跟随主分支，可能带上还没发版的改动。
+- **`latest`（compose 默认）**：跟随主分支最新构建，push 完在服务器上 `pull` 就能拿到，
+  升级**不用改 compose**。代价：可能带上还没发版的改动。
+- `1.0`：自动跟随 1.0.x 补丁，升到 1.1 需要手动改一次。
+- `1.0.0`：钉死版本，`docker compose pull` 不会把你升上去，但每次发版要手动改。
 
-当前 `docker-compose.yml` 里写的是 `ghcr.io/yezi8430/chatz:1.0.0`，
-每次发新版需要**手动改这个文件并重新 pull**。
+当前 `docker-compose.yml` 里写的是 `ghcr.io/yezi8430/chatz:latest`（不钉版本）。
+想换成别的就改那一行 `image:`，重新 pull 即可。
 
 ## 坑
 
