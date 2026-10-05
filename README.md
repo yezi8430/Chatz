@@ -142,8 +142,14 @@ docker run -d --name chatz \
   --restart unless-stopped \
   ghcr.io/yezi8430/chatz:latest
 
-docker logs chatz | grep -A3 AUTH_TOKEN
+# 确认起来了
+curl http://<你的服务器IP>:20010/health   # → {"ok":true,...}
+docker logs chatz --tail 30               # 或者直接看启动日志
 ```
+
+> 🔑 **不用从日志里捞 Token。** 完整值只在**首次启动**那一回打印一次，之后每次启动
+> 只打 8 位指纹（`· 指纹 kR9m2pQ…`）—— 这是有意的，免得密钥长期留在 `docker logs` 里。
+> 需要时到网页端「账户 → 安全与登录 → 登录设备」，点「默认 Token」那行的复制按钮即可。
 
 要注意的四点：
 

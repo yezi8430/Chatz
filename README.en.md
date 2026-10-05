@@ -149,8 +149,15 @@ docker run -d --name chatz \
   --restart unless-stopped \
   ghcr.io/yezi8430/chatz:latest
 
-docker logs chatz | grep -A3 AUTH_TOKEN
+# confirm it is up
+curl http://<your-server-IP>:20010/health   # → {"ok":true,...}
+docker logs chatz --tail 30                 # or just read the startup log
 ```
+
+> 🔑 **No need to fish the token out of the logs.** The full value is printed **only on the very
+> first start**; every later start prints just an 8-char fingerprint (`· fingerprint kR9m2pQ…`).
+> That is deliberate — a secret should not sit in `docker logs` forever. When you need it, go to
+> "Account → Security & sessions → Devices" and copy the row named "Default token".
 
 Four things to know:
 
