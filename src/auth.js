@@ -3,6 +3,12 @@ const audit = require('./audit');
 
 // 动态读取：优先 global（由 migrate 解析），其次 env，最后兜底
 function getAuthToken() {
+  // 🔴 全新安装、还没走完首次引导时，主密钥**根本不存在**（2026-10-05 起，
+  //    它改由 POST /setup 在引导页生成）。这时绝不能退化成 'dev-token' 兜底 ——
+  //    那等于把「猜得到的常量」当主密钥，任何人都能拿它当超管。
+  //    返回空串：既不匹配任何真实凭据（extractToken 拿到空串会直接判 null），
+  //    放进 SQL 的 `token = ?` 也不会命中任何一行。
+  if (global.__AUTH_TOKEN_UNINITIALIZED__) return '';
   return global.__AUTH_TOKEN__ || process.env.AUTH_TOKEN || 'dev-token';
 }
 

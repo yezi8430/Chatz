@@ -284,23 +284,29 @@ function migrate(db) {
     // 反向兜底：万一有 role>=1 但 is_admin=0 的不一致数据，以 role 为准回写
     db.prepare('UPDATE users SET is_admin = 1 WHERE role >= 1 AND is_admin = 0').run();
 
-    // AUTH_TOKEN 三级解析：env → db → 随机生成
+    // AUTH_TOKEN 三级解析：env → db → 未初始化
     // ============================================================
+    // 🔴 第三种情况**不再凭空生成**（2026-10-05 改）。
+    //
+    // 以前这里直接 generateDeviceToken()，然后：
+    //   · 拿它当预置 admin 的初始密码 ⇒ 只能把明文往容器日志打一次让人去捞；
+    //   · 顺手插进 devices 表当「默认 Token」。
+    // 引导页上线后这条路就没必要了 —— 现在改成由 POST /setup 在引导页生成：
+    //   ① 密钥**永远不进容器日志**（日志会被采集/转发/备份，暴露面太大）；
+    //   ② 超管手上只有一枚凭据，设备列表里不会再多出一行 'Web'；
+    //   ③ 引导完成前实例处于「无凭据」状态，比留一个可猜的默认更安全。
     let authToken = process.env.AUTH_TOKEN;
     let tokenSource = 'env';
 
     if (!authToken) {
-      // 从 meta 表读上次生成的
+      // 从 meta 表读（老实例升级，或已走过引导页的实例）
       const meta = db.prepare("SELECT value FROM meta WHERE key = 'auth_token'").get();
       if (meta && meta.value) {
         authToken = meta.value;
         tokenSource = 'db';
       } else {
-        // 首次启动，生成随机 token
-        // 主密钥也统一用 cz. 格式 —— 和设备 Token 一样一眼能认出是 Chatz 凭据
-        authToken = generateDeviceToken();
-        db.prepare("INSERT INTO meta (key, value) VALUES ('auth_token', ?)").run(authToken);
-        tokenSource = 'generated';
+        authToken = '';
+        tokenSource = 'uninitialized';
       }
     }
 
@@ -347,8 +353,9 @@ function migrate(db) {
     //      且 id 最小 → 管理员密码登录会返回**旧主密钥**。
     // 所以每次启动都对齐一次：只在「行存在且值 ≠ 当前主密钥」时 UPDATE，幂等无副作用。
     // （行不存在则由上面的创建逻辑负责，这里不补建。）
+    // 未初始化时 authToken 是空串 —— 这时没有「默认 Token」行可对齐，跳过。
     const defaultTokenRow = db.prepare("SELECT id, token FROM devices WHERE name = '默认 Token'").get();
-    if (defaultTokenRow && defaultTokenRow.token !== authToken) {
+    if (authToken && defaultTokenRow && defaultTokenRow.token !== authToken) {
       db.prepare('UPDATE devices SET token = ? WHERE id = ?').run(authToken, defaultTokenRow.id);
       note('devices「默认 Token」行已与当前 AUTH_TOKEN 对齐');
     }
@@ -356,6 +363,9 @@ function migrate(db) {
     // 挂到 global，供其他模块读取
     global.__AUTH_TOKEN__ = authToken;
     global.__AUTH_TOKEN_SOURCE__ = tokenSource;
+    // 🔴 未初始化标记：getAuthToken() 靠它区分「主密钥不存在」和「主密钥是某个值」，
+    //    否则 `'' || env || 'dev-token'` 会退化成 'dev-token' —— 一个谁都能猜到的常量。
+    global.__AUTH_TOKEN_UNINITIALIZED__ = (tokenSource === 'uninitialized');
 
     // 管理员
     //
@@ -368,7 +378,12 @@ function migrate(db) {
     // 用 role >= 2 找超级管理员（等价于旧的 is_admin = 1）
     let admin = db.prepare('SELECT * FROM users WHERE role >= 2 ORDER BY id ASC LIMIT 1').get();
     if (!admin) {
-      const hashed = hashPassword(authToken);
+      // 🔴 初始密码**不再用主密钥**：
+      //    以前是 hashPassword(authToken) —— 主密钥既是登录凭据又是密码，
+      //    于是只能把它的明文往日志打一次（「去 docker logs 里捞」）。
+      //    现在塞一枚没人知道的随机值：引导页走完之前，这个账号谁也登不进去，
+      //    而引导页（POST /setup）会把密码换成用户自己设的那一个。
+      const hashed = hashPassword(crypto.randomBytes(32).toString('hex'));
       const info = db.prepare(
         'INSERT INTO users (username, password_hash, display_name, is_admin, role, created_at) VALUES (?, ?, ?, 1, 2, ?)'
       ).run('admin', hashed, '管理员', Date.now());
@@ -402,12 +417,15 @@ function migrate(db) {
       db.prepare("INSERT INTO meta (key, value) VALUES ('setup_completed', '1')").run();
     }
 
-    // authToken 作为默认设备
-    const existing = db.prepare('SELECT * FROM devices WHERE token = ?').get(authToken);
-    if (!existing) {
-      db.prepare(
-        'INSERT INTO devices (user_id, name, token, created_at) VALUES (?, ?, ?, ?)'
-      ).run(admin.id, '默认 Token', authToken, Date.now());
+    // authToken 作为默认设备（未初始化时没有主密钥，这一步跳过 ——
+    // 「默认 Token」那一行由 POST /setup 在引导页生成主密钥时插入）
+    if (authToken) {
+      const existing = db.prepare('SELECT * FROM devices WHERE token = ?').get(authToken);
+      if (!existing) {
+        db.prepare(
+          'INSERT INTO devices (user_id, name, token, created_at) VALUES (?, ?, ?, ?)'
+        ).run(admin.id, '默认 Token', authToken, Date.now());
+      }
     }
 
     // ── 设备 Token：全量重签为 `cz.` 前缀格式（一次性，不可逆） ──

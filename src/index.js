@@ -54,7 +54,11 @@ if (TRUST_PROXY != null) {
   }
 }
 
-const AUTH_TOKEN = global.__AUTH_TOKEN__ || process.env.AUTH_TOKEN || 'dev-token';
+// ⚠️ 未初始化（全新安装、还没走引导页）时主密钥不存在 —— 这里绝不能退化成
+//    'dev-token'，否则启动日志会打出一个谁都能猜到的「主密钥指纹」。
+const AUTH_TOKEN = global.__AUTH_TOKEN_UNINITIALIZED__
+  ? ''
+  : (global.__AUTH_TOKEN__ || process.env.AUTH_TOKEN || 'dev-token');
 const PORT = process.env.PORT || 20010;
 const HTTPS_PORT = process.env.HTTPS_PORT || 20443;
 
@@ -860,24 +864,19 @@ server.listen(PORT, () => {
   const fingerprint = (rawAuth.startsWith('cz.') ? rawAuth.slice(3) : rawAuth).slice(0, 8);
 
   console.log('');
-  if (src === 'generated') {
-    // 唯一需要完整打印的场景：这是用户能拿到它的唯一机会
-    console.log('🔑 AUTH_TOKEN [本次启动自动生成]');
-    console.log(`   ${AUTH_TOKEN}`);
-    console.log('   ⚠️  请立即妥善保存，之后不会再打印完整值');
-    console.log('   ⚠️  如需更换，请设置环境变量 AUTH_TOKEN=xxx 后重启');
+  if (src === 'uninitialized') {
+    // 🔴 全新安装：主密钥**还没生成**，由网页端的首次引导页（POST /setup）生成。
+    //    所以这里一个字都不打印 —— 密钥从头到尾不进容器日志。
+    console.log('⏳ 尚未初始化：主密钥还没生成');
+    console.log('   → 打开网页版走首次引导，设置管理员账号后会自动生成');
     if (global.__FRESH_ADMIN__) {
-      console.log('');
-      console.log('   ⚠️  这次连的是全新数据目录（里面没有历史数据），所以 Token 和账号都是新的：');
-      console.log(`       数据目录 = ${global.__DB_PATH__ || '(未知)'}`);
-      console.log('       → 打开网页版按引导设置管理员账号即可，不需要抄这串 Token');
-      console.log('       → 如果这不是你想要的，说明部署目录 / 挂载的数据卷和上次不一样');
+      console.log(`   ℹ️  连的是全新数据目录：${global.__DB_PATH__ || '(未知)'}`);
+      console.log('      如果这不是你想要的，说明部署目录 / 挂载的数据卷和上次不一样');
     }
-    console.log('');
-    console.log('   💡 想让 Token 以后不随数据目录变：在 .env 里写死 AUTH_TOKEN=<固定值>');
+    console.log('   💡 想无头预置：在 .env 里写死 AUTH_TOKEN=<固定值> 再启动');
   } else if (src === 'db') {
-    console.log(`🔑 AUTH_TOKEN 就绪 [数据库（首次生成时已打印）] · 指纹 ${fingerprint}…`);
-    console.log('   如需查看完整值，见网页版「安全与登录」或数据库 meta 表');
+    console.log(`🔑 AUTH_TOKEN 就绪 [数据库] · 指纹 ${fingerprint}…`);
+    console.log('   完整值不进日志 —— 需要时到网页版「安全与登录 → 登录设备」复制');
   } else {
     console.log(`🔑 AUTH_TOKEN 就绪 [环境变量] · 指纹 ${fingerprint}…`);
     console.log('   完整值见 .env 里的 AUTH_TOKEN');

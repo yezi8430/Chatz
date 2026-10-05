@@ -91,5 +91,5 @@ curl -o docker-compose.yml \
     一点错都不报。自查 `docker compose config | grep AUTH_TOKEN`。
   - 只做 `docker compose restart` / 普通 `up -d` ⇒ **不重读 env_file**，值进不了容器。
     必须 `--force-recreate`。
-  换完看日志：`AUTH_TOKEN 就绪 [环境变量]` = 成功；`[数据库（首次生成时已打印）]` = 没换掉。
+  换完看日志：`AUTH_TOKEN 就绪 [环境变量]` = 成功；`[数据库]` = 没换掉（还是库里那枚）。
   超管还要重新登录一次（他的登录 token 就是主密钥）。

@@ -293,18 +293,43 @@ router.post('/setup',
 
     markSetupCompleted();
 
-    // 签发一枚设备 token，让引导页可以直接进应用，不用再登录一次
-    const token = newDeviceToken();
+    // ── 主密钥：全新安装时到这一刻才生成 ──
+    //
+    // 🔴 以前是 migrate 在启动时凭空生成、拿它当 admin 的初始密码、再把明文往日志打一次。
+    //    现在改成引导页生成，带来三个好处：
+    //      ① 密钥**永远不进容器日志**（日志会被采集/转发/备份，暴露面太大）；
+    //      ② 超管手上只有这一枚凭据 —— 不再另外发一枚 'Web' 设备 token，
+    //         设备列表里就一行「默认 Token」，不会出现「两枚都有效」的困惑；
+    //      ③ 引导完成前实例处于无凭据状态，比留一个可能被人猜到的默认更安全。
+    //
+    // ⚠️ 如果主密钥已经存在（.env 里写了 AUTH_TOKEN，或老实例升级），
+    //    就沿用现有那枚，不在这里重新生成 —— 否则等于悄悄轮换，会把别人的凭据作废。
+    let masterToken = getAuthToken();
+    if (!masterToken) {
+      masterToken = generateDeviceToken();
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('auth_token', ?)").run(masterToken);
+      // 同步到进程内：getAuthToken() 读的是 global，不设置的话本次进程里
+      // 后续请求（含下面马上要用的 resolveToken）拿到的还是空串。
+      global.__AUTH_TOKEN__ = masterToken;
+      global.__AUTH_TOKEN_UNINITIALIZED__ = false;
+      global.__AUTH_TOKEN_SOURCE__ = 'db';
+    }
+
+    // 登记成这个超管的设备：以后他用密码登录时，/auth/login 的 ownMaster 分支
+    // 会命中这一行、直接返回主密钥（见那里的注释，必须按 user_id 精确匹配）。
     const now = Date.now();
-    db.prepare(
-      'INSERT INTO devices (user_id, name, token, created_at) VALUES (?, ?, ?, ?)'
-    ).run(admin.id, 'Web', token, now);
+    const masterRow = db.prepare('SELECT id FROM devices WHERE token = ?').get(masterToken);
+    if (!masterRow) {
+      db.prepare(
+        'INSERT INTO devices (user_id, name, token, created_at, last_seen) VALUES (?, ?, ?, ?, ?)'
+      ).run(admin.id, '默认 Token', masterToken, now, now);
+    }
 
     const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(admin.id);
 
     audit.fromReq(req, { action: 'setup.complete', target: String(admin.id), meta: { username } });
 
-    res.json({ user: rowToUser(updated), token });
+    res.json({ user: rowToUser(updated), token: masterToken });
   }
 );
 
