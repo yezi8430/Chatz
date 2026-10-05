@@ -208,15 +208,26 @@ router.post('/message/read-all', (req, res) => {
     if (channelIds.length === 0) return res.json({ count: 0 });
   }
 
+  // 🔴 只挑「这个人还没读过」的消息。
+  //
+  // 以前这里不加 LEFT JOIN，把频道里**所有**消息选出来再 INSERT OR REPLACE ——
+  // 于是 count 成了「频道里总共几条」，点一次「全部已读」永远报全库条数
+  // （2026-10-05 实测：28 条消息里只有 3 条未读，却提示「已读 28 条」）。
+  //
+  // 口径必须和未读徽标一致 —— 未读 = messages 里**没有**本人的 message_reads 行，
+  // 和 `/message/unread-counts` 用的是同一句 LEFT JOIN ... r.read_at IS NULL。
   let sql = `
-    SELECT id FROM messages
-    WHERE deleted_at IS NULL
-      AND archived_at IS NULL
+    SELECT m.id FROM messages m
+    LEFT JOIN message_reads r
+      ON r.message_id = m.id AND r.user_id = ?
+    WHERE m.deleted_at IS NULL
+      AND m.archived_at IS NULL
+      AND r.read_at IS NULL
   `;
-  const params = [];
+  const params = [req.user.id];
   if (channelIds) {
     const ph = channelIds.map(() => '?').join(',');
-    sql += ` AND channel_id IN (${ph})`;
+    sql += ` AND m.channel_id IN (${ph})`;
     params.push(...channelIds);
   }
 

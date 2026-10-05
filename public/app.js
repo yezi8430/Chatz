@@ -1533,7 +1533,9 @@ async function markAllRead() {
       method: 'POST',
       body: JSON.stringify({}),
     });
-    toast(chatzT('已读 {0} 条', [r.count]));
+    // 🔴 count 是「这次真正标成已读的条数」（服务端只挑未读的），不是频道里总共几条。
+    //    一条未读都没有时说「已读 0 条」很怪，换成「没有未读消息」。
+    toast(r.count > 0 ? chatzT('已读 {0} 条', [r.count]) : chatzT('没有未读消息'));
   } catch { toast(chatzT('操作失败')); }
 }
 
