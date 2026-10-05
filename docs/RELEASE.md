@@ -84,12 +84,18 @@ curl -o docker-compose.yml \
 
 - `.env` 已在 `.gitignore` 里，**任何真实密钥都不要写进仓库 / 文档**。
   `src/tokenGen.js`、`docs/*.md` 里的示例必须是 `cz.xxxxxxxx...` 这种占位符。
-- 换主密钥：改 `.env` 的 `AUTH_TOKEN`，然后 `docker compose up -d --force-recreate`。
-  启动时 `src/migrate.js` 会把 devices 表的「默认 Token」行同步成新值。
-  🔴 两个高频坑（2026-10-05 实测）：
+- 换主密钥：改 `.env` 的 `AUTH_TOKEN`（或 `AUTH_TOKEN_FILE` 指向的文件），然后
+  `docker compose up -d --force-recreate`。启动时 `src/migrate.js` 会把 devices 表的
+  「默认 Token」行同步成新值，**并把生效值写回 `meta.auth_token`**（v1.2.1 起）。
+  🔴 三个高频坑（2026-10-05 实测）：
   - `.env` 里那行**行首还留着 `#`** ⇒ 效果等同没设，而 compose 是 `required: false`，
     一点错都不报。自查 `docker compose config | grep AUTH_TOKEN`。
   - 只做 `docker compose restart` / 普通 `up -d` ⇒ **不重读 env_file**，值进不了容器。
     必须 `--force-recreate`。
-  换完看日志：`AUTH_TOKEN 就绪 [环境变量]` = 成功；`[数据库]` = 没换掉（还是库里那枚）。
+  - `AUTH_TOKEN_FILE` 指向的文件读不到 ⇒ 服务端**拒绝启动**（不会静默用回旧值）。
+  换完看日志：`[文件]` / `[环境变量]` = 成功；`[数据库]` = 没换掉（还是库里那枚）。
   超管还要重新登录一次（他的登录 token 就是主密钥）。
+
+- ⚠️ **v1.2.1 之前**：env / 文件来源的值**不会**写回 `meta.auth_token`，于是库里停在
+  很久以前的旧值。那时"删掉 `.env` 里的 AUTH_TOKEN"是危险的 —— 会静默回落到旧密钥。
+  升级到 1.2.1 之后先带 env 启动一次（触发同步），再删就安全了。

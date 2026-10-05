@@ -203,6 +203,28 @@ docker logs chatz --tail 30               # 或者直接看启动日志
 > Token 的完整打印规则、怎么从数据库取回，见
 > [部署指南「启动日志都打印什么」](docs/DEPLOY.md#启动日志都打印什么)。
 
+#### 主密钥要不要写进 `.env`？
+
+**不用写**，默认就走数据库（引导页生成后落在 `data/app.db` 的 `meta` 表）。
+`.env` 里的 `AUTH_TOKEN` 只在一种情况下需要：无头 / 自动化部署，没有浏览器去走引导页。
+
+要手动指定时有两条路：
+
+| 写法 | 环境变量里出现的是 | 说明 |
+|---|---|---|
+| `AUTH_TOKEN_FILE=/run/secrets/chatz_auth_token` | 只有一个**路径** | ✅ 推荐。密钥在挂载进来的文件里，可以 `chmod 600`，也能对接 docker secret / k8s secret |
+| `AUTH_TOKEN=cz.xxxx` | **明文密钥** | ⚠️ `docker inspect`、`docker compose config`、面板和监控系统都会把它显示/采集出来 |
+
+> 环境变量的暴露面比文件大得多：`docker inspect` 原样打印整个 env，`docker compose config`
+> 会回显，`/proc/<pid>/environ` 同主机可读。所以有得选的时候用文件。
+>
+> ⚠️ `AUTH_TOKEN_FILE` 指向的文件读不到 / 是空的 ⇒ 服务端**拒绝启动**，
+> 不会悄悄回落到数据库里的旧值（「以为换了密钥其实没换」比起不来难查）。
+
+已经在用 `AUTH_TOKEN`、想改成文件或者干脆删掉：**值不会变**。启动时服务端会把
+「这次实际生效的值」同步进数据库，之后来源变成 `[数据库]` 也是同一个密钥。
+操作顺序见 `.env.example` 里「想把 AUTH_TOKEN 从 .env 里去掉？」那一节。
+
 ### 首次登录后建议
 
 1. **建频道**：侧栏「+ 新建频道」，比如「工作」「家庭」「监控」

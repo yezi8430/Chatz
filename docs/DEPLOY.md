@@ -91,7 +91,8 @@ docker run -d --name chatz \
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `AUTH_TOKEN` | 自动生成并存库 | 管理员 Token。不设则首次启动生成随机值（`cz.` + 30 位 base62，共 33 字符），之后复用 |
+| `AUTH_TOKEN` | 自动生成并存库 | 主密钥（也是超管的登录凭据）。不设则由引导页生成随机值（`cz.` + 30 位 base62，共 33 字符）存进数据库，之后复用。⚠️ 明文会出现在 `docker inspect` / `docker compose config` 里 |
+| `AUTH_TOKEN_FILE` | 无 | ✅ 主密钥的**文件**来源。值是一个容器内的路径，如 `/run/secrets/chatz_auth_token`。env 里因此只出现路径而非密钥。优先级低于 `AUTH_TOKEN`；🔴 文件读不到或为空 ⇒ 拒绝启动 |
 | `PORT` | `20010` | HTTP 端口 |
 | `HTTPS_PORT` | `20443` | HTTPS 端口（上传证书后启用） |
 | `AGG_WINDOW_MS` | `300000` | 消息聚合时间窗口（毫秒），默认 5 分钟；设为 `0` 关闭聚合 |
@@ -871,8 +872,8 @@ curl http://localhost:20010/health
 | 清理掉孤儿附件 | ✅ 打一行，带数量 |
 | 审计日志裁剪删了记录 | ✅ 打一行，带数量 |
 | `TRUST_PROXY` 当前状态 | ✅ 每次打（部署排查要看） |
-| `AUTH_TOKEN` 完整值 | 仅「数据库里没有 Token」（全新数据目录）时打一次，之后只给指纹 |
-| `AUTH_TOKEN` 来自环境变量 / 数据库 | ❌ 不打完整值（环境变量去 `.env` 看） |
+| `AUTH_TOKEN` 完整值 | ❌ 从不打。全新数据目录时主密钥**还不存在**（由引导页生成），更没有可打的 |
+| `AUTH_TOKEN` 来自数据库 / 文件 / 环境变量 | ❌ 不打完整值，只打 8 位指纹（用来和别的记录对上） |
 
 **连着重启时日志看起来"交错"是正常的**，不是启动失败。用分隔线切就行：
 
@@ -1161,16 +1162,56 @@ proxy_set_header Connection "upgrade";
 
 另外，WebSocket 只接受路径 `/stream`，其他路径会在 upgrade 阶段就被断掉。
 
-### 想把 `AUTH_TOKEN` 从 `.env` 挪到数据库自动生成
+### 想把 `AUTH_TOKEN` 从 `.env` 里去掉（或换成文件）
 
-不设这个环境变量就会自动生成（`cz.` + 30 位 base62，存 `meta` 表），所以只要删掉它：
+先说结论：**值不会变**。启动时服务端会把「这次实际生效的主密钥」同步进数据库，
+所以删掉环境变量只是把来源从 `[环境变量]` 换成 `[数据库]`，密钥还是原来那个，
+已配好的 App / 脚本 / Gotify 客户端全部继续可用。
+
+> ⚠️ v1.2.1 之前**不是**这样：env 来源的值从不落库，`meta.auth_token` 停在很久以前的旧值上，
+> 删掉 `.env` 那行会**静默回落到那个旧值**（`devices` 的「默认 Token」行还会被一起改过去）。
+> 老版本请先升级再操作。
+
+#### 做法 A：直接删掉（推荐）
 
 ```bash
-# .env 里把这行删掉或注释掉
+# 1) 先带着这行重启一次，让同步发生
+docker compose up -d --force-recreate
+docker compose logs chatz --tail 20 | grep -E "AUTH_TOKEN|同步"
+
+# 2) 记下指纹（形如「指纹 kR9mX2pQ…」），再把 .env 里这行删掉或注释掉
 # AUTH_TOKEN=cz.kR9mX2pQ7tL...
 
-docker compose restart
+# 3) 重建容器 —— 🔴 必须 --force-recreate，restart 不重读 env_file
+docker compose up -d --force-recreate
+docker compose logs chatz --tail 20 | grep AUTH_TOKEN
 ```
+
+第 3 步的日志应该变成 `[数据库]`，**并且指纹和第 1 步一模一样**。
+指纹变了 = 回落到了旧值，把第 1 步再走一遍。
+
+#### 做法 B：换成文件（env 里只留一个路径）
+
+```bash
+mkdir -p ./secrets && chmod 700 ./secrets
+printf '%s\n' 'cz.你的主密钥' > ./secrets/chatz_auth_token
+chmod 600 ./secrets/chatz_auth_token
+
+# .env 里：删掉 AUTH_TOKEN 那行，改成
+# AUTH_TOKEN_FILE=/run/secrets/chatz_auth_token
+```
+
+然后在 `docker-compose.yml` 的 `volumes:` 下放开这行挂载：
+
+```yaml
+      - ./secrets/chatz_auth_token:/run/secrets/chatz_auth_token:ro
+```
+
+最后 `docker compose up -d --force-recreate`。
+
+- 文件内容就一行密钥，带换行没关系（读取时会 trim）
+- 🔴 **文件读不到或为空 ⇒ 服务端拒绝启动**，不会悄悄用回旧密钥
+- `secrets/` 已在 `.gitignore` / `.dockerignore` 里，不会被提交、也不会被打进镜像
 
 日志会告诉你走到了哪条分支：
 
@@ -1178,6 +1219,7 @@ docker compose restart
 |---|---|
 | `⏳ 尚未初始化：主密钥还没生成` | 全新数据目录，**主密钥还不存在**；走网页版引导页才会生成 |
 | `🔑 AUTH_TOKEN 就绪 [数据库] · 指纹 xxxx…` | 已有主密钥，复用；完整值去「安全与登录 → 登录设备」复制 |
+| `🔑 AUTH_TOKEN 就绪 [文件] · 指纹 xxxx…` | 来自 `AUTH_TOKEN_FILE` 指向的文件；完整值只在那文件里 |
 | `🔑 AUTH_TOKEN 就绪 [环境变量] · 指纹 xxxx…` | 来自 `.env` 的 `AUTH_TOKEN`；完整值就在 `.env` 里 |
 
 两个容易忽略的点：

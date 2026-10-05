@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const { generateAppToken, generateDeviceToken, isDeviceTokenFormat, TOKEN_LENGTH } = require('./tokenGen');
+// ⚠️ 只做「读环境变量 / 读文件」，本身不碰数据库 —— 保持无依赖，便于单独测
+const { resolveAuthTokenOutsideDb } = require('./authTokenFile');
 
 function hashPassword(password, salt) {
   salt = salt || crypto.randomBytes(16).toString('hex');
@@ -284,7 +286,7 @@ function migrate(db) {
     // 反向兜底：万一有 role>=1 但 is_admin=0 的不一致数据，以 role 为准回写
     db.prepare('UPDATE users SET is_admin = 1 WHERE role >= 1 AND is_admin = 0').run();
 
-    // AUTH_TOKEN 三级解析：env → db → 未初始化
+    // AUTH_TOKEN 四级解析：env 明文 → secret 文件 → db → 未初始化
     // ============================================================
     // 🔴 第三种情况**不再凭空生成**（2026-10-05 改）。
     //
@@ -295,8 +297,23 @@ function migrate(db) {
     //   ① 密钥**永远不进容器日志**（日志会被采集/转发/备份，暴露面太大）；
     //   ② 超管手上只有一枚凭据，设备列表里不会再多出一行 'Web'；
     //   ③ 引导完成前实例处于「无凭据」状态，比留一个可猜的默认更安全。
-    let authToken = process.env.AUTH_TOKEN;
-    let tokenSource = 'env';
+    // ① 先看环境变量：AUTH_TOKEN（明文）→ AUTH_TOKEN_FILE（文件）→ 都没有
+    //    配了 AUTH_TOKEN_FILE 却读不到时**硬失败退出**：那种情况基本都是挂载/路径/权限错了，
+    //    静默回落到数据库里的旧值 = 「以为换了主密钥其实没换」，比起不来难查得多。
+    const outside = resolveAuthTokenOutsideDb();
+    if (outside.error) {
+      console.error('');
+      console.error('❌ 主密钥来源配置有问题，拒绝启动：');
+      console.error(`   ${outside.error.message}`);
+      console.error('');
+      console.error('   排查：文件挂进容器了吗？路径对吗？容器里读得到吗？');
+      console.error('   不想用文件方式就删掉 AUTH_TOKEN_FILE，主密钥会回落到数据库里的值。');
+      console.error('');
+      process.exit(1);
+    }
+
+    let authToken = outside.value || '';
+    let tokenSource = outside.source; // 'env' | 'file' | null
 
     if (!authToken) {
       // 从 meta 表读（老实例升级，或已走过引导页的实例）
@@ -307,6 +324,27 @@ function migrate(db) {
       } else {
         authToken = '';
         tokenSource = 'uninitialized';
+      }
+    }
+
+    // ── 把「这次实际生效的值」回写 meta（幂等） ──
+    //
+    // 为什么要写回去：以前 env / file 来源的值**从不落库**，于是
+    //   meta.auth_token 停在很久以前的某个旧值上。用户哪天把 .env 里的
+    //   AUTH_TOKEN 删掉（以为"不用了，反正库里有"），来源就变成 db，
+    //   主密钥**静默变成那个旧值** —— devices 表的「默认 Token」行还会被
+    //   下面的对齐逻辑一起改过去，于是所有用新密钥的东西全部失效，
+    //   而服务端日志只打一句「已对齐」，看不出密钥其实换了。
+    //
+    // 写回去以后，「去掉 env」就变成一个真正无副作用的操作：值不变。
+    // ⚠️ 这里只同步**值**，不做格式转换 —— 格式迁移那条规矩没变（见下）。
+    // ⚠️ 不算新的暴露面：主密钥本来就在库里（引导页生成的就在 meta），
+    //    devices 表那行也是明文副本。
+    if (authToken && tokenSource !== 'db') {
+      const cur = db.prepare("SELECT value FROM meta WHERE key = 'auth_token'").get();
+      if (!cur || cur.value !== authToken) {
+        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('auth_token', ?)").run(authToken);
+        note(`主密钥已同步进数据库（来源：${tokenSource === 'file' ? '文件' : '环境变量'}）`);
       }
     }
 

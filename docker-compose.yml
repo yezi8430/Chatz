@@ -40,6 +40,13 @@ services:
       TRUST_PROXY: auto
     volumes:
       - ./data:/app/data
+      # 主密钥不想明文待在 .env 里时的挂载（配合 .env 里写 AUTH_TOKEN_FILE=/run/secrets/chatz_auth_token）
+      # 用之前先在宿主机上准备这个文件：
+      #   mkdir -p ./secrets && chmod 700 ./secrets
+      #   printf '%s\n' 'cz.你的主密钥' > ./secrets/chatz_auth_token
+      #   chmod 600 ./secrets/chatz_auth_token
+      # ⚠️ secrets/ 目录别进 git（已在 .gitignore 里）
+      # - ./secrets/chatz_auth_token:/run/secrets/chatz_auth_token:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:20010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

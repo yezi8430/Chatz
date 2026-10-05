@@ -873,13 +873,17 @@ server.listen(PORT, () => {
       console.log(`   ℹ️  连的是全新数据目录：${global.__DB_PATH__ || '(未知)'}`);
       console.log('      如果这不是你想要的，说明部署目录 / 挂载的数据卷和上次不一样');
     }
-    console.log('   💡 想无头预置：在 .env 里写死 AUTH_TOKEN=<固定值> 再启动');
+    console.log('   💡 想无头预置：AUTH_TOKEN_FILE=<容器内文件路径>（推荐）或在 .env 里写 AUTH_TOKEN=<固定值>');
+  } else if (src === 'file') {
+    console.log(`🔑 AUTH_TOKEN 就绪 [文件] · 指纹 ${fingerprint}…`);
+    console.log(`   完整值不进日志 —— 它只存在于 ${process.env.AUTH_TOKEN_FILE}`);
   } else if (src === 'db') {
     console.log(`🔑 AUTH_TOKEN 就绪 [数据库] · 指纹 ${fingerprint}…`);
     console.log('   完整值不进日志 —— 需要时到网页版「安全与登录 → 登录设备」复制');
   } else {
     console.log(`🔑 AUTH_TOKEN 就绪 [环境变量] · 指纹 ${fingerprint}…`);
     console.log('   完整值见 .env 里的 AUTH_TOKEN');
+    console.log('   💡 不想让明文待在 env 里：改用 AUTH_TOKEN_FILE=<挂载进来的文件路径>');
   }
   console.log('──────── 就绪 ────────');
 });

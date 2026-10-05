@@ -19,6 +19,13 @@
   limiting and audit log every user as the proxy's address
 - ⚠️ `VAR=x docker compose up -d` does **not** work (that prefix only feeds compose
   interpolation). Change `.env` and run `up -d`, or use an override file
+- **Master key (`AUTH_TOKEN`)** — leave it unset and the setup page generates one into the
+  database. To pin one headlessly, prefer `AUTH_TOKEN_FILE=/run/secrets/chatz_auth_token`
+  (only a path appears in the environment) over `AUTH_TOKEN=<plaintext>` (the value shows up in
+  `docker inspect`, `docker compose config`, dashboards and monitoring).
+  🔴 If the file is missing or empty the server **refuses to start** instead of silently
+  reusing an old key. On every boot the effective key is synced into `meta.auth_token`, so
+  removing the variable later does **not** change the key
 
 ## Mode 1: expose the port directly
 
@@ -86,7 +93,7 @@
 - Compose refuses to start: `env file not found` (use `required: false`, or ship an empty `.env`)
 - HTTPS upload fails
 - WebSocket will not connect
-- Moving `AUTH_TOKEN` from `.env` to a database-generated value
+- Removing `AUTH_TOKEN` from `.env` (or switching to `AUTH_TOKEN_FILE`) — the key does not change
 - Data loss
 - High memory usage
 - Forgot the `AUTH_TOKEN`

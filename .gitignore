@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# 主密钥文件（AUTH_TOKEN_FILE 指向的那个）
+# ⚠️ 它跟 .env 里的 AUTH_TOKEN 是同一个东西 —— 等同于超管凭据
+secrets/
+*.token
+*.token.*
+
 # 运行时数据：SQLite 数据库 + 上传的图片 / 附件 / HTTPS 证书私钥
 # ⚠️ app.db 里除了 meta.auth_token，还有 devices 表里所有人的长期凭据
 data/

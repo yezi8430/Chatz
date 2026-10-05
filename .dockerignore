@@ -27,6 +27,12 @@
 .env
 .env.*
 
+# 主密钥文件（AUTH_TOKEN_FILE 指向的那个，常放在 ./secrets/）
+# 跟 .env 里的 AUTH_TOKEN 是同一个东西 —— 打进镜像 = 凭据公开
+secrets/
+*.token
+*.token.*
+
 # 版本库目录：白占构建上下文体积，而且 .git 里可能有历史提交过的敏感文件
 .git
 .gitignore
