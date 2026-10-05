@@ -15,6 +15,29 @@ and state stays in sync across every client in real time.
 └──────────────────────────────────────────────────────────┘
 ```
 
+## UI at a glance
+
+![Chatz web inbox](docs/screenshots/web-inbox.png)
+
+```text
+┌─────────────┬──────────────────────────────────────────┐
+│  Chatz      │  Inbox  Unread  Archived    🔍   Send     │
+├─────────────┼──────────────────────────────────────────┤
+│ + New chan. │  ● CPU alert            ×5   6h ago       │
+│ Discover    │    CPU 95%                                │
+│ Apps        │    [default channel] priority 9  #urgent  │
+│ Rules       │                                          │
+│ Mark all rd │  ● Disk alert                40m ago      │
+│             │    Disk 90%, 1st time, path /data1        │
+│ 📬 All chan │                                          │
+│ # default   │  ● Webhook alert            1h ago        │
+│ # work      │    hook, 1st time                         │
+│             │                                          │
+│ [B] bob     │                                          │
+│    ●online   │                                          │
+└─────────────┴──────────────────────────────────────────┘
+```
+
 ## Features
 
 | Feature | Notes |
@@ -247,27 +270,6 @@ to `[数据库]` with the same key. See `.env.example` for the exact order of op
    - GitHub: repo Settings → Webhooks → paste into Payload URL
    - Grafana: Alerting → Contact points → Webhook
 
-### UI at a glance
-
-```text
-┌─────────────┬──────────────────────────────────────────┐
-│  Chatz      │  Inbox  Unread  Archived    🔍   Send     │
-├─────────────┼──────────────────────────────────────────┤
-│ + New chan. │  ● CPU alert            ×5   6h ago       │
-│ Discover    │    CPU 95%                                │
-│ Apps        │    [default channel] priority 9  #urgent  │
-│ Rules       │                                          │
-│ Mark all rd │  ● Disk alert                40m ago      │
-│             │    Disk 90%, 1st time, path /data1        │
-│ 📬 All chan │                                          │
-│ # default   │  ● Webhook alert            1h ago        │
-│ # work      │    hook, 1st time                         │
-│             │                                          │
-│ [B] bob     │                                          │
-│    ●online   │                                          │
-└─────────────┴──────────────────────────────────────────┘
-```
-
 ## Send a message
 
 `<app-token>` comes from the web UI: sidebar "Apps" → copy webhook URL, or call
@@ -376,7 +378,8 @@ chatz/
 │   ├── API.md
 │   ├── TEMPLATE.md
 │   ├── ROUTES.md
-│   └── DEPLOY.md
+│   ├── DEPLOY.md
+│   └── screenshots/        # UI screenshots used in the README
 └── data/                     # persisted directory (mounted into the container)
     ├── app.db                # SQLite database
     ├── icons/                # app icons

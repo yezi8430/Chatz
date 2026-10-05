@@ -2,3 +2,11 @@
 # Docker 构建跑在 Linux：shell 脚本/entrypoint 一旦是 CRLF，`/bin/sh` 会直接报错，
 # 而且报错信息（": not found" 之类）完全看不出是换行符问题，很难查。
 * text=auto eol=lf
+
+# 图片是二进制，别让 Git 去做换行符转换（跟换行符相关的诡异报错最难查）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
