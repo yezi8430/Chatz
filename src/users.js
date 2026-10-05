@@ -650,7 +650,15 @@ router.get('/device', requireAuth, (req, res) => {
 // ⚠️ 密码**只在内存里比对一次**，不写日志、不进审计的 meta。
 router.post('/device/:id/reveal',
   requireAuth,
-  rateLimit({ windowMs: 3600000, max: 10, name: 'device_reveal', message: '查看主密钥过于频繁，请稍后再试' }),
+  // 按**用户**限流而不是按 IP：这里是验「这个账号的密码」，被攻击的对象是账号。
+  // 按 IP 的话，同一个出口 IP 下别人手滑几次就会把真正的超管锁在外面 ——
+  // 而攻击者换个 IP 又能继续试，等于既误伤又没防住。
+  // requireAuth 已经跑过，req.user 一定在。
+  rateLimit({
+    windowMs: 3600000, max: 10, name: 'device_reveal',
+    keyFn: (req) => 'u:' + (req.user && req.user.id),
+    message: '查看主密钥过于频繁，请稍后再试',
+  }),
   (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: '无效的 ID' });
