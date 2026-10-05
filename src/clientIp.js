@@ -37,6 +37,9 @@
 // `TRUST_PROXY=auto` 展开后的实际值。index.js 的启动日志要用它反推显示成 auto
 const AUTO_TRUST_LIST = 'loopback,linklocal,uniquelocal';
 
+// 日志 i18n（零依赖模块，这里 require 不会产生循环）
+const i18n = require('./serverI18n');
+
 // 返回：null（不信任）/ true（信任全部）/ 正整数 N（信任 N 跳）/ 字符串（信任指定地址）
 function trustProxyConfig() {
   const raw = String(process.env.TRUST_PROXY ?? '').trim().toLowerCase();
@@ -71,8 +74,8 @@ function trustProxyConfig() {
   if (list.length > 0 && list.every(isValidTrustEntry)) return list.join(',');
 
   // 认不出来的值：宁可不信任，也不要悄悄当成 true
-  console.warn(`[clientIp] TRUST_PROXY="${process.env.TRUST_PROXY}" 无法识别，按不信任处理`);
-  console.warn('           可填：off/false/0 · true · 正整数跳数 · IP或CIDR（如 172.17.0.1、172.16.0.0/12）');
+    i18n.warn('trustProxy.unrecognized', { raw: process.env.TRUST_PROXY });
+  i18n.warn('trustProxy.allowedValues');
   return null;
 }
 

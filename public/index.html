@@ -22,6 +22,8 @@
 
 <div id="loginView" class="login-view hidden">
   <div class="login-card">
+    <!-- 语言切换：登录前也要能选 —— 这一页是全新用户看到的第一屏 -->
+    <button class="icon-btn lang-btn lang-toggle login-lang" title="切换语言">EN</button>
     <div class="login-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
     <h1>Chatz</h1>
     <div class="auth-tabs">
@@ -60,6 +62,9 @@
      正常情况下这个视图永远是 hidden。 -->
 <div id="setupView" class="login-view hidden">
   <div class="login-card">
+    <!-- 语言切换：在这一页选的语言会连带决定**容器日志**说什么语言
+         （POST /setup 把它写进 meta.lang），所以必须出现在引导页上 -->
+    <button class="icon-btn lang-btn lang-toggle login-lang" title="切换语言">EN</button>
     <div class="login-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
     <h1>初始化 Chatz</h1>
     <p class="setup-hint">
@@ -82,6 +87,7 @@
 <!-- 重置密码：从「忘记密码」的日志链接（?token=…）进来时显示 -->
 <div id="resetView" class="login-view hidden">
   <div class="login-card">
+    <button class="icon-btn lang-btn lang-toggle login-lang" title="切换语言">EN</button>
     <div class="login-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
     <h1>重置密码</h1>
     <div class="auth-form">
@@ -106,7 +112,7 @@
       <div class="header-actions">
         <button id="themeToggle" class="icon-btn" title="切换主题"></button>
         <!-- 语言切换：按钮上的字是「切过去的那一种」，由 i18n.js 维护 -->
-        <button id="langToggle" class="icon-btn lang-btn" title="切换语言">EN</button>
+        <button id="langToggle" class="icon-btn lang-btn lang-toggle" title="切换语言">EN</button>
       </div>
     </div>
     <div class="sidebar-actions">

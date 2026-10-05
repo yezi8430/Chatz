@@ -229,7 +229,7 @@ Token 来源：
 前端启动前拉取的运行时配置。
 
 ```json
-{"certsUiEnabled": true, "httpsPort": 20443, "aggWindowMs": 300000, "aggMaxLifetimeMs": 1800000}
+{"certsUiEnabled": true, "httpsPort": 20443, "aggWindowMs": 300000, "aggMaxLifetimeMs": 1800000, "lang": "zh", "langLocked": false}
 ```
 
 | 字段 | 说明 |
@@ -238,6 +238,38 @@ Token 来源：
 | httpsPort | 当前 HTTPS 端口 |
 | aggWindowMs | 消息聚合的滚动窗口（`AGG_WINDOW_MS`），距**上次折叠**超过它就换新的一条 |
 | aggMaxLifetimeMs | 单条聚合消息的最长寿命（`AGG_MAX_LIFETIME_MS`），从**建消息时间**算起；`0` = 不限制 |
+| lang | 服务端**日志**当前说的语言：`zh` / `en` |
+| langLocked | `true` = 环境变量 `LOG_LANG` 把它钉死了，网页端改不动 |
+
+### `GET /config/lang` 登录
+
+```json
+{ "lang": "zh", "locked": false }
+```
+
+当前生效的日志语言，以及它是否被 `LOG_LANG` 锁死。
+
+### `PUT /config/lang` 超级管理员
+
+改整机的**日志**语言。**立刻生效**，不用重启。
+
+```json
+// 请求
+{ "lang": "en" }
+```
+
+- 只接受 `en` / `zh`，其它值一律按 `zh` 处理
+- 普通用户 / 管理员调用 → `403`（注册是完全开放的，否则谁注册个号都能改你的日志）
+- 环境变量 `LOG_LANG` 设过时，接口仍然返回 `200`，但生效值不变（`locked: true`）
+- 切换时会往日志里打一行 `🌐 日志语言已切换为 英文`，并记一条 `config.set_lang` 审计
+
+```json
+// 响应（locked=true 时 lang 可能与请求的不同）
+{ "lang": "en", "locked": false }
+```
+
+> 💡 网页端侧栏的语言按钮会顺手调这个接口，所以**界面切英文、容器日志也跟着变英文**。
+> 引导页是唯一「还没有超管、却能定整机语言」的时刻 —— `POST /setup` 会带上 `lang`。
 
 ### `GET /version` 登录
 
@@ -272,7 +304,8 @@ Token 来源：
 {
   "username": "admin",
   "password": "换成你自己的密码",
-  "displayName": "管理员"
+  "displayName": "管理员",
+  "lang": "zh"
 }
 ```
 
@@ -280,6 +313,9 @@ Token 来源：
 
 - `username` 2–32 位，仅允许 `a-z A-Z 0-9 _ - .`；与其它用户重名 → `409`
 - `password` **6–128 位**（与普通注册一致，管理员不再额外加严）
+- `lang` 可选，`en` / `zh`；只认这两个字面值，其它一律忽略。它决定**服务端日志**说什么语言
+  （写进 `meta.lang`），也是唯一「还没有超管、却能定整机语言」的时刻
+- `email` 可选，用于「忘记密码」；格式不对 → `400`，被别人占用 → `409`
 - 已经完成过初始化 → `403`
 
 成功时会：
@@ -287,7 +323,12 @@ Token 来源：
 1. 接管 `migrate.js` 预置的那个 `admin` 用户 —— **是改它的用户名/密码，不是新建一个管理员**，
    所以不会出现两个管理员，它已持有的默认频道订阅也保住了
 2. 把 `meta.setup_completed` 置为 `'1'`，接口就此关闭
-3. 签发一枚名为 `Web` 的设备 Token 一并返回，引导页可以直接进应用，不用再登录一次
+3. 若 `lang` 是 `en` / `zh`，写进 `meta.lang` —— 之后的容器日志按它输出
+4. 生成并返回主密钥 —— 引导页可以直接进应用，不用再登录一次
+
+> ⚠️ 主密钥是**到这一步才生成**的（2026-10-05 改），之前它根本不存在，也从不进容器日志。
+> 返回的就是那枚主密钥本身（`cz.` + 30 位），随后会以「默认 Token」的名字登记成设备，
+> 所以超管手上只有一枚凭据，不会冒出「两枚都有效」的困惑。
 
 > 另外：`POST /auth/login` 登录成功时也会把这个标记置成 `'1'`。
 > 用真实凭据进来过 = 这个实例已经有人在管了，不该再弹引导。
@@ -1724,6 +1765,7 @@ curl -X POST http://<host>:20010/background \
 | `user.username_change` | 改登录用户名 | `before`、`after`、`reason`（失败：重名） |
 | `user.password_change` | 改密码 / 管理员重置他人密码 | `self`、`revokedDevices`、`reason`（失败原因） |
 | `setup.complete` | 首次引导：给全新安装设管理员账号 | `username` |
+| `config.set_lang` | 超管改整机日志语言（`PUT /config/lang`） | `before`、`after`、`locked` |
 | `app.create` / `app.update` / `app.delete` | 应用管理 | `name`、`changed`（改了哪些字段）、`deletedMessages` |
 | `app.icon.upload` | 应用图标 | — |
 | `channel.create` / `channel.update` / `channel.delete` | 频道管理（含 `is_public` 翻转） | `name`、`isPublic`、`changed`、`deletedMessages` |

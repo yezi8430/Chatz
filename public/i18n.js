@@ -710,13 +710,19 @@
     updateToggle();
   }
 
+  // 🔴 语言按钮不止一个：登录页 / 引导页 / 重置页 / 侧栏各有一个。
+  //    以前只认 #langToggle，结果登录前（全新用户第一屏）根本切不了语言。
+  var LANG_BTN_SEL = '.lang-toggle';
+
   function updateToggle() {
-    var btn = document.getElementById('langToggle');
-    if (!btn) return;
-    // 按钮上写的是「切过去的那一种语言」
-    btn.textContent = (LANG === 'zh') ? 'EN' : '中';
-    btn.title = (LANG === 'zh') ? 'Switch to English' : '切换为中文';
-    btn.setAttribute('aria-label', btn.title);
+    var btns = document.querySelectorAll(LANG_BTN_SEL);
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      // 按钮上写的是「切过去的那一种语言」
+      btn.textContent = (LANG === 'zh') ? 'EN' : '中';
+      btn.title = (LANG === 'zh') ? 'Switch to English' : '切换为中文';
+      btn.setAttribute('aria-label', btn.title);
+    }
   }
 
   function setLang(l, quiet) {
@@ -740,11 +746,12 @@
   }
 
   function bindToggle() {
-    var btn = document.getElementById('langToggle');
-    if (!btn) return;
-    btn.addEventListener('click', function () {
-      setLang(LANG === 'zh' ? 'en' : 'zh');
-    });
+    var btns = document.querySelectorAll(LANG_BTN_SEL);
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function () {
+        setLang(LANG === 'zh' ? 'en' : 'zh');
+      });
+    }
   }
 
   // ── 启动 ────────────────────────────────────────────────

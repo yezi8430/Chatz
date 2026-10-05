@@ -27,6 +27,8 @@ const audit = require('./audit');
 const { trustProxyConfig, AUTO_TRUST_LIST } = require('./clientIp');
 const { createSecurityHeaders } = require('./securityHeaders');
 const { generateAppToken } = require('./tokenGen');
+// 日志 i18n：界面切英文时容器日志也跟着说英文（语言存在 meta.lang，超管可改）
+const i18n = require('./serverI18n');
 
 const app = express();
 const server = http.createServer(app);
@@ -48,7 +50,7 @@ if (TRUST_PROXY != null) {
   try {
     app.set('trust proxy', TRUST_PROXY);
   } catch (e) {
-    console.error(`[trust proxy] "${TRUST_PROXY}" 不是合法的信任配置，按不信任处理: ${e.message}`);
+    i18n.error('trustProxy.invalid', { raw: String(TRUST_PROXY), msg: e.message });
     app.set('trust proxy', false);
     TRUST_PROXY = null; // 启动日志也按 off 展示，别误导
   }
@@ -90,10 +92,10 @@ async function ensureHttps() {
         cert: fs.readFileSync(CRT_PATH),
         key: fs.readFileSync(KEY_PATH),
       });
-      console.log('✅ 证书已热更新');
+      i18n.log('certs.hotReloaded');
       return { ok: true, started: false };
     } catch (e) {
-      console.error('❌ 证书热更新失败:', e.message);
+      i18n.error('certs.hotReloadFailed', { msg: e.message });
       return { ok: false, error: e.message };
     }
   }
@@ -111,7 +113,7 @@ async function ensureHttps() {
     }, app);
     ws.attach(srv);
   } catch (e) {
-    console.error('❌ HTTPS 创建失败:', e.message);
+    i18n.error('certs.httpsCreateFailed', { msg: e.message });
     return { ok: false, error: e.message };
   }
 
@@ -123,7 +125,7 @@ async function ensureHttps() {
       settled = true;
       httpsServer = null;
       try { srv.close(); } catch {}
-      console.error('❌ HTTPS 监听失败:', e.message);
+      i18n.error('certs.httpsListenFailed', { msg: e.message });
       resolve({ ok: false, error: e.message });
     };
 
@@ -136,11 +138,11 @@ async function ensureHttps() {
 
       // listen 成功后，改挂运行时错误处理
       srv.on('error', (e) => {
-        console.error('❌ HTTPS 运行时错误:', e.message);
+        i18n.error('certs.httpsRuntimeError', { msg: e.message });
       });
 
       httpsServer = srv;
-      console.log(`🔒 HTTPS 已启动，监听端口 ${HTTPS_PORT}`);
+      i18n.log('certs.httpsStarted', { port: HTTPS_PORT });
       resolve({ ok: true, started: true });
     });
   });
@@ -153,11 +155,11 @@ function stopHttps() {
     const srv = httpsServer;
     httpsServer = null;
     srv.close(() => {
-      console.log('🛑 HTTPS 服务已关闭');
+      i18n.log('certs.httpsStopped');
     });
     return { stopped: true };
   } catch (e) {
-    console.error('关闭 HTTPS 失败:', e.message);
+    i18n.error('certs.httpsStopFailed', { msg: e.message });
     return { stopped: false, error: e.message };
   }
 }
@@ -310,6 +312,11 @@ app.get('/config', (req, res) => {
     //   aggMaxLifetimeMs 单条聚合消息的最长寿命，从**建消息时间**算起；0 = 不限制
     aggWindowMs: AGG_WINDOW_MS,
     aggMaxLifetimeMs: AGG_MAX_LIFETIME_MS,
+    // 日志语言（整机设置）。公开返回：它不含任何凭据，而前端要知道
+    // 服务端现在说的是哪种语言，才好判断「要不要同步一次」。
+    lang: i18n.getLang(),
+    // LOG_LANG 环境变量设了就锁死：数据库里那个值改不动（超管在界面上改了也不生效）
+    langLocked: i18n.isLocked(),
   });
 });
 
@@ -323,6 +330,42 @@ app.get('/version', auth, (req, res) => {
 app.use(hooksRouter);
 app.use(usersRouter);
 app.use(auth);
+
+// ============================================================
+// 日志语言（整机设置）
+// ============================================================
+// 界面切英文时容器日志也跟着切 —— 否则 `docker compose logs` 里全是中文，
+// 排查的人（或采集系统）和界面看到的是两种语言。
+//
+// 🔴 只让**超级管理员**改：注册是完全开放的，任何登录用户都能改的话，
+//    等于谁注册个号就能决定你这台机器的日志说什么语言。
+//    （引导页 POST /setup 是唯一例外 —— 那一刻还没有任何超管存在。）
+//
+// 改完**立刻生效**，不用重启：serverI18n 的语言就是进程内的一个变量。
+app.get('/config/lang', auth, (req, res) => {
+  res.json({ lang: i18n.getLang(), locked: i18n.isLocked() });
+});
+
+app.put('/config/lang', auth, requireSuper, (req, res) => {
+  const lang = (req.body && req.body.lang) === 'en' ? 'en' : 'zh';
+  const before = i18n.getLang();
+  const actual = i18n.saveLang(db, lang);
+
+  // 切换本身写一行日志：排查时看到半中半英的日志，得知道是哪一刻切过去的。
+  // 🔴 用**新语言**打这一行（saveLang 已经改过 LANG 了），否则切完还是中文，
+  //    看着像没生效。
+  if (actual !== before) {
+    i18n.log('lang.changed', { name: i18n.t(actual === 'en' ? 'lang.en' : 'lang.zh') });
+  }
+
+  audit.fromReq(req, {
+    action: 'config.set_lang',
+    target: lang,
+    meta: { before, after: actual, locked: i18n.isLocked() },
+  });
+
+  res.json({ lang: actual, locked: i18n.isLocked() });
+});
 
 app.use(channelsRouter);
 app.use(messagesRouter);
@@ -750,7 +793,7 @@ app.delete('/message/:id', (req, res) => {
       attachmentsDir: ATTACHMENTS_DIR,
       row,
     });
-    if (removed > 0) console.log(`🧹 随消息删除清理附件 ${removed} 个`);
+    if (removed > 0) i18n.log('attachment.sweptWithMessage', { n: removed });
 
     // 删消息对同频道所有人可见（会广播 messageDeleted），属于共享状态的破坏性操作。
     // 注意这里普通用户也能删自己订阅频道的消息，所以记 userId 有意义
@@ -801,7 +844,7 @@ ws.attach(server);
 
 // 启动时间戳：既用来给日志分段，也能在排查"这次到底是哪一轮"时对时间
 const BOOTED_AT = new Date().toISOString().replace('T', ' ').slice(0, 19);
-const bootSep = () => console.log(`──────── 启动 ${BOOTED_AT} ────────`);
+const bootSep = () => i18n.log('boot.separator', { time: BOOTED_AT });
 
 server.listen(PORT, () => {
   // 分隔线：容器日志是 append 的，连续 restart 时上一轮的退出日志
@@ -809,35 +852,36 @@ server.listen(PORT, () => {
   // 加一条带时间戳的分隔 + 收尾的结束线，一眼就能看出每轮的边界。
   bootSep();
 
-  console.log(`✅ Chatz 已启动，监听端口 ${PORT}`);
-  console.log(`   数据目录: ${global.__DB_PATH__ || '(未知)'}`);
-  console.log(`   网页版: http://<主机>:${PORT}/`);
-  console.log(`   推送接口: http://<主机>:${PORT}/hook/<应用Token>`);
+  const unknown = i18n.t('boot.unknown');
+  i18n.log('boot.started', { port: PORT });
+  i18n.log('boot.dataDir', { path: global.__DB_PATH__ || unknown });
+  i18n.log('boot.webUrl', { port: PORT });
+  i18n.log('boot.hookUrl', { port: PORT });
   // 直接复用 messageCreate 里的常量，别再抄一份默认值（抄就会drift）
-  const aggLife = AGG_MAX_LIFETIME_MS > 0 ? `${AGG_MAX_LIFETIME_MS}ms` : '不限制';
-  console.log(`   消息聚合窗口: ${AGG_WINDOW_MS}ms（单条最长寿命 ${aggLife}）`);
+  const aggLife = AGG_MAX_LIFETIME_MS > 0 ? `${AGG_MAX_LIFETIME_MS}ms` : i18n.t('boot.aggUnlimited');
+  i18n.log('boot.aggWindow', { window: AGG_WINDOW_MS, lifetime: aggLife });
 
   if (TRUST_PROXY == null) {
-    console.log('   🛡️  TRUST_PROXY=off  →  限速 / 审计只认 TCP 对端地址（忽略 X-Forwarded-For）');
-    console.log('      （前面挂了反代的话要改：否则所有人被记成反代的内网 IP，一人触发限速全站 429）');
+    i18n.log('boot.trustProxyOff');
+    i18n.log('boot.trustProxyOffHint');
   } else if (TRUST_PROXY === true) {
-    console.log('   ⚠️  TRUST_PROXY=true  →  限速 / 审计取 X-Forwarded-For 第一段');
-    console.log('      ⚠️  反代用 $proxy_add_x_forwarded_for（追加）时，客户端伪造的值就在第一段');
-    console.log('         建议改用 TRUST_PROXY=1 或 TRUST_PROXY=<反代内网IP>');
+    i18n.log('boot.trustProxyTrue');
+    i18n.log('boot.trustProxyTrueHint');
+    i18n.log('boot.trustProxyTrueAdvice');
   } else if (typeof TRUST_PROXY === 'number') {
-    console.log(`   ⚠️  TRUST_PROXY=${TRUST_PROXY}  →  按 ${TRUST_PROXY} 跳反代计算客户端 IP`);
-    console.log('      ⚠️  跳数模式不校验对端：本端口若也能被公网直连，绕过反代 + 伪造 XFF 可取任意 IP');
-    console.log('         要么防火墙只放行 80/443，要么改成 TRUST_PROXY=<反代内网IP>');
+    i18n.log('boot.trustProxyHops', { hops: TRUST_PROXY });
+    i18n.log('boot.trustProxyHopsHint');
+    i18n.log('boot.trustProxyHopsAdvice');
   } else {
     // TRUST_PROXY=auto 展开成一串网段名，日志里还原成 auto 更好认
     const shown = TRUST_PROXY === AUTO_TRUST_LIST ? 'auto' : TRUST_PROXY;
-    console.log(`   🛡️  TRUST_PROXY=${shown}  →  只信任来自本机 / 内网的代理`);
+    i18n.log('boot.trustProxyList', { shown });
   }
 
   // 孤儿附件清理：覆盖"删消息"之外的所有路径（清空全部消息 / 裁剪历史 / 删频道）
   // —— 那些地方不会逐条通知附件，启动时扫一遍兜底
   const swept = sweepOrphanAttachments({ db, attachmentsDir: ATTACHMENTS_DIR });
-  if (swept > 0) console.log(`🧹 启动清理孤儿附件 ${swept} 个`);
+  if (swept > 0) i18n.log('attachment.sweptOrphan', { n: swept });
 
   // 审计日志裁剪：保留 ${audit.RETENTION_DAYS} 天 / 最多 ${audit.MAX_ROWS} 条
   audit.prune();
@@ -863,34 +907,34 @@ server.listen(PORT, () => {
   const rawAuth = String(AUTH_TOKEN);
   const fingerprint = (rawAuth.startsWith('cz.') ? rawAuth.slice(3) : rawAuth).slice(0, 8);
 
-  console.log('');
+  i18n.raw('');
   if (src === 'uninitialized') {
     // 🔴 全新安装：主密钥**还没生成**，由网页端的首次引导页（POST /setup）生成。
     //    所以这里一个字都不打印 —— 密钥从头到尾不进容器日志。
-    console.log('⏳ 尚未初始化：主密钥还没生成');
-    console.log('   → 打开网页版走首次引导，设置管理员账号后会自动生成');
+    i18n.log('authToken.notInitialized');
+    i18n.log('authToken.notInitializedHint');
     if (global.__FRESH_ADMIN__) {
-      console.log(`   ℹ️  连的是全新数据目录：${global.__DB_PATH__ || '(未知)'}`);
-      console.log('      如果这不是你想要的，说明部署目录 / 挂载的数据卷和上次不一样');
+      i18n.log('authToken.freshDataDir', { path: global.__DB_PATH__ || unknown });
+      i18n.log('authToken.freshDataDirHint');
     }
-    console.log('   💡 想无头预置：AUTH_TOKEN_FILE=<容器内文件路径>（推荐）或在 .env 里写 AUTH_TOKEN=<固定值>');
+    i18n.log('authToken.headlessHint');
   } else if (src === 'file') {
-    console.log(`🔑 AUTH_TOKEN 就绪 [文件] · 指纹 ${fingerprint}…`);
-    console.log(`   完整值不进日志 —— 它只存在于 ${process.env.AUTH_TOKEN_FILE}`);
+    i18n.log('authToken.readyFile', { fp: fingerprint });
+    i18n.log('authToken.readyFileHint', { path: process.env.AUTH_TOKEN_FILE });
   } else if (src === 'db') {
-    console.log(`🔑 AUTH_TOKEN 就绪 [数据库] · 指纹 ${fingerprint}…`);
-    console.log('   完整值不进日志 —— 需要时到网页版「安全与登录 → 登录设备」复制');
+    i18n.log('authToken.readyDb', { fp: fingerprint });
+    i18n.log('authToken.readyDbHint');
   } else {
-    console.log(`🔑 AUTH_TOKEN 就绪 [环境变量] · 指纹 ${fingerprint}…`);
-    console.log('   完整值见 .env 里的 AUTH_TOKEN');
-    console.log('   💡 不想让明文待在 env 里：改用 AUTH_TOKEN_FILE=<挂载进来的文件路径>');
+    i18n.log('authToken.readyEnv', { fp: fingerprint });
+    i18n.log('authToken.readyEnvHint');
+    i18n.log('authToken.envFileAdvice');
   }
-  console.log('──────── 就绪 ────────');
+  i18n.log('boot.ready');
 });
 
 if (hasCerts()) {
   ensureHttps().catch(e => {
-    console.error('启动时启用 HTTPS 失败:', e.message);
+    i18n.error('certs.httpsStartupFailed', { msg: e.message });
   });
 }
 
@@ -903,21 +947,21 @@ let shuttingDown = false;
 
 function gracefulShutdown(signal) {
   if (shuttingDown) {
-    console.log(`   （已在关闭中，忽略重复的 ${signal}）`);
+    i18n.log('shutdown.duplicateSignal', { signal });
     return;
   }
   shuttingDown = true;
 
-  console.log('');
-  console.log(`──────── 收到 ${signal}，正在关闭 ────────`);
+  i18n.raw('');
+  i18n.log('shutdown.separator', { signal });
   try { server.close(); } catch {}
   try { if (httpsServer) httpsServer.close(); } catch {}
   try {
     db.pragma('wal_checkpoint(TRUNCATE)');
     db.close();
-    console.log('✅ 数据库已关闭');
+    i18n.log('shutdown.dbClosed');
   } catch (e) {
-    console.error('❌ 数据库关闭失败:', e.message);
+    i18n.error('shutdown.dbCloseFailed', { msg: e.message });
   }
 
   // 给 stdout 一点冲刷时间再退。

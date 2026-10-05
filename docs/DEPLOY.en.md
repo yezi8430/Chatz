@@ -113,6 +113,7 @@ the README).
 | `AUDIT_MAX_ROWS` | `50000` | Maximum number of audit rows; the oldest are deleted beyond that, `0` = unlimited |
 | `ATTACHMENT_MAX_FILE_MB` | `8` | Per-attachment size cap. Attachments accept **any file type**, so this is the only single-file gate |
 | `ATTACHMENT_MAX_TOTAL_MB` | `500` | Total size cap for the attachment directory; uploads beyond it return `507`. Orphaned attachments are only swept **at startup**, so this cap is the main protection against filling the disk |
+| `LOG_LANG` | unset (the value in the database is used) | Language of the server log, `zh` / `en`. ⚠️ Setting it is a **hard override** — switching in the web UI cannot move it (see [Log language](#log-language-one-setting-for-the-whole-instance)) |
 
 > ⚠️ **Precedence trap**: inside the same service, `environment:` outranks `env_file:`.
 > `docker-compose.yml` hard-codes `PORT`, `HTTPS_PORT` and `TRUST_PROXY` in its `environment:`
@@ -959,6 +960,32 @@ docker compose exec chatz node -e 'console.log(require("better-sqlite3")("/app/d
 > JS, SQL) make this very easy to hit. The command above uses a bound parameter (`?` +
 > `.get("auth_token")`), which sidesteps the whole problem; to query another key, change only the
 > last argument.
+
+### Log language (one setting for the whole instance)
+
+The server log speaks the same language as the web UI — they share one switch:
+
+| Situation | How the log language is decided |
+|---|---|
+| English picked on the first-run setup page | Setup writes it to `meta.lang`; **from that moment** the log is English |
+| Language button in the sidebar clicked after signing in | The front end calls `PUT /config/lang` in passing; it takes effect **immediately**, no restart |
+| You want it pinned at deploy time | Set `LOG_LANG=en` in `.env` (or compose `environment:`) — this is a **hard override** the web UI cannot change |
+| Who may change it | **Super-admins only.** Registration is fully open: if any signed-in user could change it, anyone who signs up could decide what language your logs speak |
+
+Changing it leaves two traces: a `🌐 log language switched to English` line in the log itself,
+and a `config.set_lang` row in the audit log.
+
+To read the effective value:
+
+```bash
+curl -s http://192.168.2.100:20010/config | grep -o '"lang":"[a-z]*"'
+# or the dedicated endpoint (requires a token)
+curl -s -H "Authorization: Bearer <your-token>" http://192.168.2.100:20010/config/lang
+```
+
+> ⚠️ Once `LOG_LANG` is set, `/config/lang` reports `"locked": true` — switching in the UI still
+> works (that is the browser's own setting) but the log will not follow. Drop the variable if you
+> want the UI to drive the log language.
 
 ### Viewing logs
 

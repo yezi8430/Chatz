@@ -119,6 +119,34 @@ async function api(path, opts = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// ── 界面语言 → 服务端日志语言 ───────────────────────────────
+// 界面切成英文、容器日志还是中文，排查时两种语言来回对是最难受的。
+// 所以切语言时顺手把整机日志语言也改掉（存在数据库 meta.lang，超管权限）。
+//
+// 🔴 这里**故意不走 api()**：api() 见到 401 会清 token + 弹回登录页，
+//    而「同步日志语言」是个锦上添花的操作，不该把人踢下线。
+//    同理，403（不是超管）也是预期内的 —— 静默忽略，界面照切。
+function currentLang() {
+  try { if (window.chatzI18n && window.chatzI18n.getLang) return window.chatzI18n.getLang(); } catch {}
+  return localStorage.getItem('chatz_lang') || 'zh';
+}
+
+async function syncServerLang(lang) {
+  if (!state.token) return;   // 还没登录：等引导页 POST /setup 带上语言
+  try {
+    await fetch('/config/lang', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.token}` },
+      body: JSON.stringify({ lang }),
+    });
+  } catch {}   // 网络异常 / 403（非超管）都无所谓：界面已经切好了
+}
+
+// 切语言时同步一次（i18n.js 的 setLang 会派发这个事件）
+window.addEventListener('chatz:langchange', (e) => {
+  syncServerLang(e.detail && e.detail.lang ? e.detail.lang : currentLang());
+});
+
 const ICON_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
 const ICON_SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`;
 
@@ -227,7 +255,9 @@ async function doSetup() {
     const res = await fetch('/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, displayName, email }),
+      // lang：引导页选的语言顺带决定**容器日志**说什么语言。
+      // 这是唯一「还没有超管、却能定整机语言」的时刻 —— 服务端对它有专门分支。
+      body: JSON.stringify({ username, password, displayName, email, lang: currentLang() }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || chatzT('初始化失败'));

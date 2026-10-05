@@ -257,6 +257,7 @@ body::before {
 }
 
 .login-card {
+  position: relative; /* 右上角的语言切换按钮靠它定位 */
   width: 100%;
   max-width: 400px;
   background: var(--glass-bg-strong);
@@ -267,6 +268,15 @@ body::before {
   padding: 40px 32px;
   box-shadow: var(--shadow-xl);
   text-align: center;
+}
+
+/* 登录 / 引导 / 重置三张卡片右上角那个语言按钮。
+   （悬停只改颜色，不做位移/缩放 —— 全站 UI 规范） */
+.login-lang {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
 }
 
 .login-logo {

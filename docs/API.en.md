@@ -243,7 +243,7 @@ Uploaded images always get their extension re-derived from the **file magic numb
 Runtime config the web client fetches before starting up.
 
 ```json
-{"certsUiEnabled": true, "httpsPort": 20443, "aggWindowMs": 300000, "aggMaxLifetimeMs": 1800000}
+{"certsUiEnabled": true, "httpsPort": 20443, "aggWindowMs": 300000, "aggMaxLifetimeMs": 1800000, "lang": "zh", "langLocked": false}
 ```
 
 | Field | Meaning |
@@ -252,6 +252,42 @@ Runtime config the web client fetches before starting up.
 | httpsPort | Current HTTPS port |
 | aggWindowMs | Rolling aggregation window (`AGG_WINDOW_MS`); more time than this since the **last fold** starts a new message |
 | aggMaxLifetimeMs | Maximum lifetime of a single aggregated message (`AGG_MAX_LIFETIME_MS`), measured from **message creation**; `0` = unlimited |
+| lang | Language the **server log** currently speaks: `zh` / `en` |
+| langLocked | `true` = the `LOG_LANG` environment variable pinned it and the web UI cannot move it |
+
+### `GET /config/lang` logged in
+
+```json
+{ "lang": "zh", "locked": false }
+```
+
+The log language currently in effect, plus whether `LOG_LANG` has locked it.
+
+### `PUT /config/lang` super-admin
+
+Changes the **log** language for the whole instance. Takes effect **immediately** — no restart.
+
+```json
+// request
+{ "lang": "en" }
+```
+
+- Only `en` / `zh` are accepted; anything else is treated as `zh`
+- Ordinary users and admins get `403` (registration is fully open — otherwise anyone who signs up
+  could decide what language your logs speak)
+- When `LOG_LANG` is set the endpoint still returns `200`, but the effective value does not change
+  (`locked: true`)
+- Switching writes a `🌐 log language switched to English` line to the log and records a
+  `config.set_lang` audit row
+
+```json
+// response (when locked=true, `lang` may differ from the request)
+{ "lang": "en", "locked": false }
+```
+
+> 💡 The language button in the web UI sidebar calls this endpoint in passing, so **switching the UI
+> to English switches the container log too**. The setup page is the one moment where no super-admin
+> exists yet but the language still gets decided — `POST /setup` carries `lang`.
 
 ### `GET /version` logged in
 
@@ -288,7 +324,8 @@ every later call returns `403`.
 {
   "username": "admin",
   "password": "use your own password",
-  "displayName": "Admin"
+  "displayName": "Admin",
+  "lang": "zh"
 }
 ```
 
@@ -296,6 +333,10 @@ Constraints:
 
 - `username` 2–32 chars, only `a-z A-Z 0-9 _ - .`; colliding with another user → `409`
 - `password` **6–128** chars (same as ordinary registration — admins get no extra strictness)
+- `lang` optional, `en` / `zh`; only those two literals are honoured, anything else is ignored. It
+  decides what language the **server log** speaks (stored in `meta.lang`) and is the one moment
+  where no super-admin exists yet but the language still gets decided
+- `email` optional, used by "forgot password"; malformed → `400`, already taken → `409`
 - setup already completed → `403`
 
 On success it:
@@ -304,8 +345,13 @@ On success it:
    user, it does not create a second admin**, so you never end up with two admins and the default
    channel subscription it already holds survives
 2. Sets `meta.setup_completed` to `'1'`, closing the endpoint
-3. Issues a device token named `Web` and returns it, so the setup page can enter the app without a
-   second login
+3. If `lang` is `en` / `zh`, writes it to `meta.lang` — the container log follows it from then on
+4. Generates and returns the master key, so the setup page can enter the app without a second login
+
+> ⚠️ The master key is **generated at this step** (changed 2026-10-05); before it, no master key
+> exists at all and none is ever written to the container log. What comes back is the master key
+> itself (`cz.` + 30 chars), registered afterwards as a device named "default Token" — so the
+> super-admin holds exactly one credential and never wonders which of two is valid.
 
 > Also: a successful `POST /auth/login` sets that flag to `'1'` as well. Somebody getting in with
 > real credentials means the instance is already being managed and should not show setup again.
@@ -1806,6 +1852,7 @@ Recorded actions:
 | `user.username_change` | Login username changed | `before`, `after`, `reason` (failure: duplicate) |
 | `user.password_change` | Password changed / admin reset someone else's | `self`, `revokedDevices`, `reason` (failure reason) |
 | `setup.complete` | First-run setup created the admin account | `username` |
+| `config.set_lang` | Super-admin changed the instance-wide log language (`PUT /config/lang`) | `before`, `after`, `locked` |
 | `app.create` / `app.update` / `app.delete` | App management | `name`, `changed` (which fields), `deletedMessages` |
 | `app.icon.upload` | App icon | — |
 | `channel.create` / `channel.update` / `channel.delete` | Channel management (incl. `is_public` flips) | `name`, `isPublic`, `changed`, `deletedMessages` |

@@ -1,5 +1,6 @@
 const db = require('./db');
 const { clientIp } = require('./clientIp');
+const i18n = require('./serverI18n');
 
 const insertStmt = db.prepare(`
   INSERT INTO audit_log (ts, user_id, ip, action, target, meta, success)
@@ -146,7 +147,7 @@ function prune() {
   } catch (e) {
     console.error('[audit] prune failed:', e.message);
   }
-  if (removed > 0) console.log(`🧾 审计日志裁剪：删除 ${removed} 条`);
+  if (removed > 0) i18n.log('audit.trimmed', { n: removed });
   return removed;
 }
 

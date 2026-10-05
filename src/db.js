@@ -2,6 +2,8 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 const { migrate } = require('./migrate');
+// 日志 i18n（自身零依赖，放这里不会形成循环）
+const serverI18n = require('./serverI18n');
 
 const DB_PATH = process.env.DB_PATH || './data/app.db';
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -45,5 +47,9 @@ db.exec(`
 // v2 迁移：加字段 + 建新表 + 补默认数据
 // ============================================================
 migrate(db);
+
+// 日志语言：migrate() 已经把 meta 表建好了，这里才能读。
+// migrate 自己那几条日志也在 migrate.js 里各读了一次（那会儿表刚建出来）。
+serverI18n.initFromDb(db);
 
 module.exports = db;

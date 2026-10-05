@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const { generateAppToken, generateDeviceToken, isDeviceTokenFormat, TOKEN_LENGTH } = require('./tokenGen');
 // ⚠️ 只做「读环境变量 / 读文件」，本身不碰数据库 —— 保持无依赖，便于单独测
 const { resolveAuthTokenOutsideDb } = require('./authTokenFile');
+// 日志 i18n：它自己零依赖（不 require 任何东西），所以放在这里不会有循环引用
+const i18n = require('./serverI18n');
 
 function hashPassword(password, salt) {
   salt = salt || crypto.randomBytes(16).toString('hex');
@@ -191,6 +193,11 @@ function migrate(db) {
       CREATE INDEX IF NOT EXISTS idx_reset_token_user ON password_reset_tokens(user_id);
     `);
 
+    // meta 表现在**肯定存在**了 —— 日志语言可以读了。
+    // 下面的「主密钥来源配置有问题」是启动期唯一会打中文的错误块，
+    // 读一次就能让它在英文环境下也说英文。（db.js 在 migrate() 之后还会再读一次）
+    i18n.initFromDb(db);
+
     if (!columnExists(db, 'channels', 'creator_id')) {
       db.exec('ALTER TABLE channels ADD COLUMN creator_id INTEGER');
     }
@@ -302,13 +309,12 @@ function migrate(db) {
     //    静默回落到数据库里的旧值 = 「以为换了主密钥其实没换」，比起不来难查得多。
     const outside = resolveAuthTokenOutsideDb();
     if (outside.error) {
-      console.error('');
-      console.error('❌ 主密钥来源配置有问题，拒绝启动：');
-      console.error(`   ${outside.error.message}`);
-      console.error('');
-      console.error('   排查：文件挂进容器了吗？路径对吗？容器里读得到吗？');
-      console.error('   不想用文件方式就删掉 AUTH_TOKEN_FILE，主密钥会回落到数据库里的值。');
-      console.error('');
+      i18n.error('authToken.sourceError');
+      i18n.error('authToken.sourceErrorDetail', { msg: outside.error.message });
+      i18n.error('');
+      i18n.error('authToken.sourceErrorHint1');
+      i18n.error('authToken.sourceErrorHint2');
+      i18n.error('');
       process.exit(1);
     }
 
@@ -602,10 +608,7 @@ function migrate(db) {
       .prepare('SELECT token, COUNT(*) AS n FROM applications WHERE token IS NOT NULL GROUP BY token HAVING n > 1')
       .all();
     if (dupTokens.length > 0) {
-      console.warn(
-        '⚠️ applications 存在重复 token，已跳过建唯一索引（请手动处理）:',
-        dupTokens.map((d) => d.token).join(', ')
-      );
+      i18n.warn('migrate.dupToken', { list: dupTokens.map((d) => d.token).join(', ') });
     } else {
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_applications_token ON applications(token)');
     }
@@ -665,10 +668,10 @@ function migrate(db) {
 
     // 只在真的改了东西时才输出，且合并成一行
     if (applied.length > 0) {
-      console.log(`🔧 数据库迁移：应用 ${applied.length} 项变更 → ${applied.join(', ')}`);
+      i18n.log('migrate.applied', { n: applied.length, list: applied.join(', ') });
     }
   } catch (e) {
-    console.error('❌ 迁移失败:', e.message);
+    i18n.error('migrate.failed', { msg: e.message });
     throw e;
   }
 }

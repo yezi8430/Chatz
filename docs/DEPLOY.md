@@ -106,6 +106,7 @@ docker run -d --name chatz \
 | `AUDIT_MAX_ROWS` | `50000` | 审计日志最大条数，超出后从最旧的开始删，`0` = 不限 |
 | `ATTACHMENT_MAX_FILE_MB` | `8` | 单个附件大小上限。附件支持**任意文件类型**，这个值是唯一的单文件闸门 |
 | `ATTACHMENT_MAX_TOTAL_MB` | `500` | 附件目录总容量上限，超出后上传返回 `507`。孤儿附件只在**启动时**扫一次，所以这个上限是防止磁盘被写满的主要手段 |
+| `LOG_LANG` | 未设（用数据库里的值） | 服务端日志的语言，`zh` / `en`。⚠️ 设了就是**硬覆盖**，网页端切语言改不动它（见[日志语言](#日志语言整台机器一个设置)） |
 
 > ⚠️ **优先级坑**：同一个服务里 `environment:` 的优先级高于 `env_file:`。
 > `docker-compose.yml` 的 `environment:` 段已经写死了 `PORT`、`HTTPS_PORT`、`TRUST_PROXY`，
@@ -919,6 +920,30 @@ docker compose exec chatz node -e 'console.log(require("better-sqlite3")("/app/d
 > 💡 SQL 的字符串字面量必须用**单引号**。写成 `key = "auth_token"` 会被 SQLite 当成**列名**，
 > 报 `no such column: "auth_token"` —— shell、JS、SQL 三层引号叠在一起极容易踩到。
 > 上面用绑定参数（`?` + `.get("auth_token")`）天然绕开这一层，查别的 key 只改最后一处。
+
+### 日志语言（整台机器一个设置）
+
+服务端日志说什么语言，和网页端界面是**同一套开关**：
+
+| 场景 | 日志语言怎么定 |
+|---|---|
+| 首次引导页选了英文 | 引导页提交时把语言写进数据库 `meta.lang`，**从那一刻起**日志就是英文 |
+| 登录后点侧栏的语言按钮 | 前端顺手调 `PUT /config/lang` 同步过去，**立刻生效**，不用重启 |
+| 部署时就想钉死 | `.env` 里写 `LOG_LANG=en`（或 compose 的 `environment:`）—— 这是**硬覆盖**，网页端改不动 |
+| 谁有权限改 | 只有**超级管理员**。注册是完全开放的，任何登录用户都能改的话，等于谁注册个号就能决定你这台机器的日志说什么语言 |
+
+改完会留两处痕迹：日志里一行 `🌐 日志语言已切换为 英文`，以及审计日志里的 `config.set_lang`。
+
+查当前生效值：
+
+```bash
+curl -s http://192.168.2.100:20010/config | grep -o '"lang":"[a-z]*"'
+# 或直接看专门那个接口（需要登录）
+curl -s -H "Authorization: Bearer <你的Token>" http://192.168.2.100:20010/config/lang
+```
+
+> ⚠️ `LOG_LANG` 一旦设了，`/config/lang` 会返回 `"locked": true` —— 界面上切换仍然照常
+> 成功（那是浏览器自己的设置），但日志不会跟着变。想让界面能带动日志，就把这一行删掉。
 
 ### 查看日志
 

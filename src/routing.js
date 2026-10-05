@@ -1,5 +1,6 @@
 const db = require('./db');
 const { isWebhookTargetAllowed } = require('./ssrfGuard');
+const i18n = require('./serverI18n');
 
 // ============================================================
 // 安全正则
@@ -119,7 +120,7 @@ function applyAction(action, ctx) {
           // 守卫逻辑与逃生开关（ALLOW_PRIVATE_WEBHOOK=1）见 src/ssrfGuard.js
           const check = await isWebhookTargetAllowed(url);
           if (!check.ok) {
-            console.warn(`[route] call_webhook 已拒绝: ${url} —— ${check.reason}`);
+            i18n.warn('route.webhookRejected', { url, reason: check.reason });
             return;
           }
 

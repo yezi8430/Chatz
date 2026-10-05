@@ -5,6 +5,7 @@ const { createMessage } = require('./messageCreate');
 const { rateLimit } = require('./rateLimit');
 const audit = require('./audit');
 const { tokenPrefix } = require('./tokenGen');
+const i18n = require('./serverI18n');
 
 const router = express.Router();
 
@@ -194,7 +195,7 @@ router.post('/hook/:token',
             final.extras = rendered.extras;
             final.tags = rendered.tags;
           } catch (e) {
-            console.error('[hook] 模板渲染失败:', e.message);
+            i18n.error('hook.templateRenderFailed', { msg: e.message });
           }
         }
 
@@ -230,12 +231,12 @@ router.post('/hook/:token',
         // （webhook 是 fire-and-forget，不能让第三方等着），所以这里只能记日志。
         // 消息不会落库 —— 安全目标是达成的，但排查全靠这条日志，必须打出来。
         if (result?.error) {
-          console.warn(`[hook] ${app.name} -> 已拒绝: ${result.error}`);
+          i18n.warn('hook.rejected', { app: app.name, reason: result.error });
           return;
         }
 
         if (result?.dropped) {
-          console.log(`[hook] ${app.name} -> 被路由规则丢弃`);
+          i18n.log('hook.dropped', { app: app.name });
         }
       } catch (e) {
         console.error('[hook] error:', e);

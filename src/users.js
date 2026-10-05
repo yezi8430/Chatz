@@ -7,6 +7,7 @@ const { generateDeviceToken, tokenFingerprint } = require('./tokenGen');
 const { rateLimit, rateLimitLogin } = require('./rateLimit');
 const audit = require('./audit');
 const ws = require('./ws');
+const i18n = require('./serverI18n');
 const router = express.Router();
 
 /**
@@ -25,7 +26,7 @@ function notifyUserUpdated(userId) {
     ws.broadcastToUser(userId, { event: 'userUpdated' });
   } catch (e) {
     // 推送失败不能影响接口本身的成功返回（账号确实已经改好了）
-    console.error('[user] userUpdated 推送失败:', e.message);
+    i18n.error('ws.userUpdatedFailed', { msg: e.message });
   }
 }
 
@@ -293,6 +294,15 @@ router.post('/setup',
 
     markSetupCompleted();
 
+    // ── 日志语言：引导页是唯一「没有超管、却能定整机语言」的时刻 ──
+    //
+    // 界面在这里选了英文，容器日志就跟着说英文 —— 否则一个英文用户装完，
+    // `docker compose logs` 里还是满屏中文，等于白选。
+    // 🔴 只接受 en / zh 两个字面值（saveLang 内部还会 normalize 一次），
+    //    别的值一律忽略 —— 语言是整机设置，不能被塞进任意字符串。
+    const setupLang = req.body && req.body.lang;
+    if (setupLang === 'en' || setupLang === 'zh') i18n.saveLang(db, setupLang);
+
     // ── 主密钥：全新安装时到这一刻才生成 ──
     //
     // 🔴 以前是 migrate 在启动时凭空生成、拿它当 admin 的初始密码、再把明文往日志打一次。
@@ -375,12 +385,12 @@ router.post('/auth/forgot-password',
     const scheme = (req.protocol === 'https') ? 'https' : 'http';
     const link = `${scheme}://${host}${RESET_LINK_PATH}?token=${token}`;
 
-    console.log('');
-    console.log('📧 密码重置请求');
-    console.log(`   用户: ${user.username} <${email}>`);
-    console.log(`   链接: ${link}`);
-    console.log(`   有效期: ${RESET_TOKEN_TTL / 60000} 分钟（一次性，用一次即失效）`);
-    console.log('');
+    i18n.raw('');
+    i18n.log('resetMail.header');
+    i18n.log('resetMail.user', { username: user.username, email });
+    i18n.log('resetMail.link', { link });
+    i18n.log('resetMail.ttl', { minutes: RESET_TOKEN_TTL / 60000 });
+    i18n.raw('');
 
     audit.log({ userId: user.id, ip, action: 'auth.forgot_password', target: email, success: true });
 

@@ -26,18 +26,13 @@
 const fs = require('fs');
 const db = require('./db');
 const { hashPassword } = require('./migrate');
+const i18n = require('./serverI18n');
 
 const MIN_LEN = 6;
 const MAX_LEN = 128;
 
 function usage(code) {
-  console.log(`从服务器侧重置用户密码
-
-  node src/reset-password.js --list                                    列出所有用户
-  node src/reset-password.js <用户名> <新密码>                          重置密码
-  echo '<新密码>' | node src/reset-password.js <用户名> --stdin         从标准输入读密码
-
-密码长度 ${MIN_LEN}-${MAX_LEN} 位。重置后不会吊销任何已登录设备。`);
+  i18n.log('cli.resetUsage', { min: MIN_LEN, max: MAX_LEN });
   process.exit(code);
 }
 
@@ -47,15 +42,15 @@ function listUsers() {
   ).all();
 
   if (rows.length === 0) {
-    console.log('（数据库里没有任何用户）');
+    i18n.log('cli.noUsers');
     return 0;
   }
 
-  console.log(`共 ${rows.length} 个用户：`);
+  i18n.log('cli.userCount', { n: rows.length });
   for (const u of rows) {
-    const role = u.is_admin ? '管理员' : '普通用户';
-    const pw = u.hlen > 0 ? '密码已设置' : '密码未设置';
-    console.log(`  #${u.id}  ${u.username}  ${role}  ${pw}`);
+    const role = u.is_admin ? i18n.t('cli.roleAdmin') : i18n.t('cli.roleUser');
+    const pw = u.hlen > 0 ? i18n.t('cli.pwSet') : i18n.t('cli.pwUnset');
+    i18n.log('cli.userRow', { id: u.id, username: u.username, role, pw });
   }
   return 0;
 }
@@ -76,27 +71,31 @@ function main() {
   }
 
   if (!password) {
-    console.error('缺少新密码。用 --stdin 从标准输入读取，或直接写在第二个参数里。');
+    i18n.error('cli.missingPassword');
     return 1;
   }
   if (password.length < MIN_LEN || password.length > MAX_LEN) {
-    console.error(`新密码长度必须是 ${MIN_LEN}-${MAX_LEN} 位（当前 ${password.length} 位）。`);
+    i18n.error('cli.passwordLength', { min: MIN_LEN, max: MAX_LEN, len: password.length });
     return 1;
   }
 
   const user = db.prepare('SELECT id, username, is_admin FROM users WHERE username = ?').get(username);
   if (!user) {
-    console.error(`没有名为「${username}」的用户。先跑 --list 看看有哪些：`);
-    console.error('');
+    i18n.error('cli.userNotFound', { username });
+    i18n.rawErr('');
     listUsers();
     return 1;
   }
 
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), user.id);
 
-  console.log(`✅ 已重置「${user.username}」（#${user.id}${user.is_admin ? '，管理员' : ''}）的密码。`);
-  console.log('   现在可以用新密码登录了。');
-  console.log('   已登录的设备不受影响（devices 记录没动）。');
+  i18n.log('cli.resetOk', {
+    username: user.username,
+    id: user.id,
+    suffix: user.is_admin ? i18n.t('cli.resetOkRoleSuffix') : '',
+  });
+  i18n.log('cli.resetOkHint');
+  i18n.log('cli.resetOkDevices');
   return 0;
 }
 
@@ -104,7 +103,7 @@ let code = 1;
 try {
   code = main();
 } catch (err) {
-  console.error('重置失败：' + (err && err.message ? err.message : err));
+  i18n.error('cli.resetFailed', { msg: (err && err.message) ? err.message : err });
   code = 1;
 }
 process.exit(code);

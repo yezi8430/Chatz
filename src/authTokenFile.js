@@ -26,6 +26,7 @@
 // 这类无声失败比启动失败难查得多（参考 RELEASE.md 里轮换踩过的坑）。
 
 const fs = require('fs');
+const i18n = require('./serverI18n');
 
 /**
  * 解析环境变量里给出的主密钥。
@@ -39,8 +40,8 @@ function resolveAuthTokenOutsideDb() {
 
   // 两个都给了就吵一句 —— 否则用户改了文件却发现不生效，会以为是挂载的问题
   if (direct && file) {
-    console.warn('⚠️  AUTH_TOKEN 和 AUTH_TOKEN_FILE 同时设置了，以 AUTH_TOKEN（明文）为准');
-    console.warn('    想改用文件方式，请把 .env 里的 AUTH_TOKEN 那行删掉或注释掉');
+    i18n.warn('authToken.bothSet');
+    i18n.warn('authToken.bothSetHint');
   }
 
   if (direct) return { value: String(direct), source: 'env', error: null };
@@ -53,7 +54,7 @@ function resolveAuthTokenOutsideDb() {
     return {
       value: '',
       source: 'file',
-      error: new Error(`读不到 AUTH_TOKEN_FILE 指向的文件「${file}」：${e.message}`),
+      error: new Error(i18n.t('authToken.readFileFailed', { file, msg: e.message })),
     };
   }
 
@@ -65,7 +66,7 @@ function resolveAuthTokenOutsideDb() {
     return {
       value: '',
       source: 'file',
-      error: new Error(`AUTH_TOKEN_FILE 指向的文件「${file}」是空的`),
+      error: new Error(i18n.t('authToken.fileEmpty', { file })),
     };
   }
 
