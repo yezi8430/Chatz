@@ -533,9 +533,26 @@ router.post('/auth/logout', requireAuth, (req, res) => {
     return res.json({ ok: true, keptDefaultToken: true });
   }
 
-  db.prepare('DELETE FROM devices WHERE id = ? AND user_id = ?').run(req.deviceId, req.user.id);
-  audit.fromReq(req, { action: 'logout', target: String(req.deviceId) });
-  res.json({ ok: true });
+  // ⚠️ 登出**不再删除**这行设备凭据。
+  //
+  // 语义：一个用户 = 一枚登录 token（登录时按 user_id 复用，见上面的登录分支），
+  // 登出只结束前端会话，凭据本身留着，下次登录还是同一枚。
+  //
+  // 以前登出会 DELETE 掉这行，于是「登录 → 登出 → 再登录」每次都查不到 existing、
+  // 只能新发一枚，设备列表里越攒越多「Web」—— 用户明确不要这个行为。
+  //
+  // 真要作废某枚凭据，有三条路（都比"登出即销毁"更明确）：
+  //   · 设备列表里点删除
+  //   · 点 ⟳（POST /device/rotate）更换，旧值立即失效
+  //   · 改密码（会踢掉该用户的设备）
+  db.prepare('UPDATE devices SET last_seen = ? WHERE id = ? AND user_id = ?')
+    .run(Date.now(), req.deviceId, req.user.id);
+  audit.fromReq(req, {
+    action: 'logout',
+    target: String(req.deviceId),
+    meta: { keptToken: true },
+  });
+  res.json({ ok: true, keptToken: true });
 });
 
 // ============================================================
