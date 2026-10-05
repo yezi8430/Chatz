@@ -78,12 +78,12 @@
 - Docker Compose v2
 - （可选）已备案域名 + SSL 证书
 
-### 部署：两条路，选一条
+### 部署：三种方式，选一种
 
-仓库里的 `docker-compose.yml` 默认是**路线 A**（`image: ghcr.io/yezi8430/chatz:latest`，
-`build: .` 是注释掉的）。想改源码自己编才走路线 B。
+仓库里的 `docker-compose.yml` 默认是**方式一**（`image: ghcr.io/yezi8430/chatz:latest`，
+`build: .` 是注释掉的）。想改源码自己编才用方式二；连 compose 都不想碰就用方式三。
 
-#### 路线 A：直接用 GHCR 镜像（默认，推荐）
+#### 方式一：docker compose + GHCR 镜像（默认，推荐）
 
 每次推到主分支，GitHub Actions 会自动构建并推送到 `ghcr.io/yezi8430/chatz`
 （镜像是 `linux/amd64`）。
@@ -102,7 +102,7 @@ docker compose pull && docker compose up -d
 
 不需要 `--build` —— 这条路线根本没有本地构建这一步。
 
-#### 路线 B：改源码、本地编译
+#### 方式二：docker compose + 本地编译（改源码时用）
 
 先把 `docker-compose.yml` 改成这样（`image` 与 `build` **只能留一个**）：
 
@@ -124,10 +124,38 @@ docker compose up -d --build
 改了 `src/` 或 `public/` 之后**必须重新 `--build`**：这两目录是 `COPY` 进镜像的，
 只 `restart` 不会生效（前端还要顺手硬刷新一次浏览器）。
 
-> 🔴 **两条路不要同时开着。** `image:` 和 `build:` 同时存在时，本地构建出来的镜像会被
+> 🔴 **方式一和方式二不要同时开着。** `image:` 和 `build:` 同时存在时，本地构建出来的镜像会被
 > 打上 `ghcr.io/yezi8430/chatz:latest` 这个标签、把远端镜像顶掉，之后
 > `docker compose pull` 只会回一句 `Skipped - No image to be pulled`（**不报错**），
 > 你以为在升级，其实一直在跑自己那份旧构建。
+
+#### 方式三：docker run（不用 compose、不用 clone）
+
+只要一个容器、不想维护 compose 文件时：
+
+```bash
+docker run -d --name chatz \
+  -p 20010:20010 \
+  -p 20443:20443 \
+  -v ./data:/app/data \
+  -e TRUST_PROXY=auto \
+  --restart unless-stopped \
+  ghcr.io/yezi8430/chatz:latest
+
+docker logs chatz | grep -A3 AUTH_TOKEN
+```
+
+要注意的四点：
+
+- **要改源码自己编**，先 `docker build -t chatz .`，再把上面最后一行换成 `chatz`。
+- ⚠️ `-v ./data:/app/data` 用的是**绑定挂载**，跟 compose 默认一致 ——
+  `data/` 就是数据库本体（账号 / Token / 消息全在里面），整目录打包即可备份迁移。
+  别换成 named volume（`chatz-data:/app/data`），那样备份文档里的目录打包步骤就对不上了。
+- `docker run` 没有 `env_file`，所有变量都得用 `-e` 写在命令行上；好处是不受 compose 里
+  `environment:` 优先级的影响，代价是**改变量必须重建容器**：`docker rm -f chatz` 再跑一遍
+  上面的命令（`docker restart` 改不了 `-e`）。升级同理：
+  `docker pull ghcr.io/yezi8430/chatz:latest` 后重建，数据目录不会被删。
+- `20443` 是内置 HTTPS 端口（上传证书后用），用不到可以不映射。
 
 > 标签策略：主分支打 `latest` + `sha-<短提交号>`；打 `v1.2.3` 这种标签时还会出
 > `1.2.3` / `1.2`。**回滚靠 `sha-xxxx` 那个标签** —— 只认 `latest` 的话回滚是碰运气。
@@ -168,32 +196,6 @@ docker compose up -d --build
 > 点「默认 Token」那行的复制按钮即可。
 > Token 的完整打印规则、怎么从数据库取回，见
 > [部署指南「启动日志都打印什么」](docs/DEPLOY.md#启动日志都打印什么)。
-
-<details>
-<summary>不想 clone、用 <code>docker run</code> 也行</summary>
-
-```bash
-docker run -d --name chatz \
-  -p 20010:20010 \
-  -p 20443:20443 \
-  -v ./data:/app/data \
-  -e TRUST_PROXY=auto \
-  --restart unless-stopped \
-  ghcr.io/yezi8430/chatz:latest
-
-docker logs chatz | grep -A3 AUTH_TOKEN
-```
-
-几点说明：
-
-- **要改源码自己编**（路线 B），先 `docker build -t chatz .`，再把上面最后一行换成 `chatz`。
-- ⚠️ `-v ./data:/app/data` 用的是**绑定挂载**，跟 compose 默认一致 ——
-  `data/` 就是数据库本体（账号 / Token / 消息全在里面），整目录打包即可备份迁移。
-  别换成 named volume（`chatz-data:/app/data`），那样备份文档里的目录打包步骤就对不上了。
-- `docker run` 没有 `env_file`，所有变量都得用 `-e` 写在命令行上；
-  反过来它也不受 compose 里 `environment:` 优先级的影响。
-- `20443` 是内置 HTTPS 端口（上传证书后用），用不到可以不映射。
-</details>
 
 ### 首次登录后建议
 

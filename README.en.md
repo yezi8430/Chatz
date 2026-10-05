@@ -83,12 +83,13 @@ cannot see their apps or rules.
 - Docker Compose v2
 - (optional) a domain name + SSL certificate
 
-### Deploy: two paths, pick one
+### Deploy: three ways, pick one
 
-The shipped `docker-compose.yml` defaults to **path A** (`image: ghcr.io/yezi8430/chatz:latest`,
-with `build: .` commented out). Use path B only if you want to edit the source and build locally.
+The shipped `docker-compose.yml` defaults to **option 1** (`image: ghcr.io/yezi8430/chatz:latest`,
+with `build: .` commented out). Use option 2 only if you want to edit the source and build locally;
+use option 3 if you would rather not touch compose at all.
 
-#### Path A: use the GHCR image (default, recommended)
+#### Option 1: docker compose + the GHCR image (default, recommended)
 
 Every push to the main branch makes GitHub Actions build and push
 `ghcr.io/yezi8430/chatz` (image is `linux/amd64`).
@@ -107,7 +108,7 @@ docker compose pull && docker compose up -d
 
 No `--build` here — on this path there is no local build step at all.
 
-#### Path B: edit the source, build locally
+#### Option 2: docker compose + local build (when editing the source)
 
 First change `docker-compose.yml` (**keep only one** of `image` / `build`):
 
@@ -129,10 +130,41 @@ docker compose up -d --build
 After touching `src/` or `public/` you **must `--build` again**: both directories are `COPY`ed
 into the image, so a plain `restart` has no effect (and hard-refresh the browser for the frontend).
 
-> 🔴 **Never leave both enabled.** With `image:` and `build:` present at the same time, the locally
-> built image gets tagged `ghcr.io/yezi8430/chatz:latest` and shadows the remote one. From then on
-> `docker compose pull` just prints `Skipped - No image to be pulled` (**no error**) — you think
-> you are upgrading while actually running your own stale build.
+> 🔴 **Never leave both enabled — that means options 1 and 2 are mutually exclusive.** With `image:`
+> and `build:` present at the same time, the locally built image gets tagged
+> `ghcr.io/yezi8430/chatz:latest` and shadows the remote one. From then on `docker compose pull`
+> just prints `Skipped - No image to be pulled` (**no error**) — you think you are upgrading while
+> actually running your own stale build.
+
+#### Option 3: docker run (no compose, no clone)
+
+When a single container is all you want:
+
+```bash
+docker run -d --name chatz \
+  -p 20010:20010 \
+  -p 20443:20443 \
+  -v ./data:/app/data \
+  -e TRUST_PROXY=auto \
+  --restart unless-stopped \
+  ghcr.io/yezi8430/chatz:latest
+
+docker logs chatz | grep -A3 AUTH_TOKEN
+```
+
+Four things to know:
+
+- To **build from source**, run `docker build -t chatz .` first and replace the last line with `chatz`.
+- ⚠️ `-v ./data:/app/data` is a **bind mount**, matching what compose does by default — `data/` *is*
+  the database (accounts, tokens, messages), so tarring that directory is the whole backup. Do not
+  switch to a named volume (`chatz-data:/app/data`); the backup steps in the deployment guide work
+  on a directory.
+- `docker run` has no `env_file`, so every variable must be passed with `-e`. The upside is that
+  `environment:` precedence in compose does not apply; the cost is that **changing a variable means
+  recreating the container**: `docker rm -f chatz`, then re-run the command above (`docker restart`
+  cannot change `-e`). Same for upgrades — `docker pull ghcr.io/yezi8430/chatz:latest`, recreate,
+  and the data directory survives.
+- `20443` is the built-in HTTPS port (used once you upload a certificate); drop it if unused.
 
 > Tag policy: the main branch produces `latest` + `sha-<short-sha>`; pushing a tag like `v1.2.3`
 > additionally produces `1.2.3` / `1.2`. **Roll back using the `sha-xxxx` tag** — relying on
@@ -176,34 +208,6 @@ Startup log of an already-settled instance:
 > "Account → Security & sign-in → Devices" and copy the "Default token" row.
 > For the full rules about when it is printed and how to recover it from the database, see
 > [Deployment guide → "Startup log"](docs/DEPLOY.en.md).
-
-<details>
-<summary>No clone? <code>docker run</code> works too</summary>
-
-```bash
-docker run -d --name chatz \
-  -p 20010:20010 \
-  -p 20443:20443 \
-  -v ./data:/app/data \
-  -e TRUST_PROXY=auto \
-  --restart unless-stopped \
-  ghcr.io/yezi8430/chatz:latest
-
-docker logs chatz | grep -A3 AUTH_TOKEN
-```
-
-Notes:
-
-- To **build from source** (path B), run `docker build -t chatz .` first and replace the last line
-  with `chatz`.
-- ⚠️ `-v ./data:/app/data` is a **bind mount**, matching what compose does by default —
-  `data/` *is* the database (accounts, tokens, messages), so tarring that directory is the whole
-  backup. Do not switch to a named volume (`chatz-data:/app/data`); the backup instructions in the
-  deployment guide work on a directory.
-- `docker run` has no `env_file`, so every variable must be passed with `-e`; on the other hand it
-  is not affected by `environment:` precedence in compose.
-- `20443` is the built-in HTTPS port (used once you upload a certificate); drop it if unused.
-</details>
 
 ### Recommended after first sign-in
 
