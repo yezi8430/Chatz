@@ -30,10 +30,20 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# 同一分支/同一 tag 只保留一次构建：连推几个 commit 时旧 run 直接取消，
+# 省得两个 run 并发写同一个 latest 互相覆盖（tag push 有自己的 ref，不受影响）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   # ⚠️ 故意不写死用户名/组织名：直接取「owner/repo」，
   #    这样仓库改名、转组织、fork 出去都不用动这个文件。
+  #    ⚠️⚠️ 但它是**大小写敏感的原文**（本仓库 = yezi8430/Chatz），而 GHCR 要求镜像名
+  #    全小写。metadata-action 会自动转小写，buildx 的 outputs 不会 ——
+  #    所以每个 job 里都要先跑一次「Normalize image name」步骤拿到小写版再用。
+  #    （2026-10-06 run #38 就是栽在这：failed to parse ref ".../Chatz": must be lowercase）
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -48,6 +58,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # GHCR 要求镜像名全小写；github.repository 原样带着大写，先转掉
+      - name: Normalize image name
+        id: repo
+        run: echo "image=${REGISTRY}/$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -66,7 +81,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.repo.outputs.image }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -100,7 +115,9 @@ jobs:
           platforms: linux/amd64
           # push-by-digest：镜像传上去了，但只是 sha256 形式的裸引用，
           # 没有 latest / sha-xxxx 这些 tag 指向它。等 merge 合成 manifest list 再挂。
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.repo.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          # provenance 证明文件会以 unknown/unknown 架构混进 manifest list，用不上，关掉
+          provenance: false
           labels: ${{ steps.meta.outputs.labels }}
           # 用 GitHub Actions 的缓存，第二次构建能省下大半时间
           # scope 写死：两个架构的缓存不能共用同一个 key，否则互相覆盖
@@ -127,6 +144,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Normalize image name
+        id: repo
+        run: echo "image=${REGISTRY}/$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -137,6 +158,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata (labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.repo.outputs.image }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
@@ -144,7 +173,8 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/arm64
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.repo.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=chatz-arm64
           cache-to: type=gha,scope=chatz-arm64,mode=max
@@ -161,6 +191,10 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Normalize image name
+        id: repo
+        run: echo "image=${REGISTRY}/$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -172,7 +206,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.repo.outputs.image }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -182,16 +216,17 @@ jobs:
 
       - name: Create manifest list
         env:
+          IMG: ${{ steps.repo.outputs.image }}
           AMD64: ${{ needs.build-amd64.outputs.digest }}
           ARM64: ${{ needs.build-arm64.outputs.digest }}
         run: |
           set -eu
           # steps.meta.outputs.tags 是多行文本，拼成 "-t a -t b -t c"
           TAGS="${{ steps.meta.outputs.tags }}"
-          SRC="${REGISTRY}/${IMAGE_NAME}@${AMD64}"
+          SRC="${IMG}@${AMD64}"
           # arm64 没拿到 digest 就退化成只发 amd64（见上面 job 级的 always()）
           if [ -n "${ARM64:-}" ]; then
-            SRC="${SRC} ${REGISTRY}/${IMAGE_NAME}@${ARM64}"
+            SRC="${SRC} ${IMG}@${ARM64}"
           fi
           echo "sources: ${SRC}"
           docker buildx imagetools create $(printf ' -t %s' $TAGS) ${SRC}
