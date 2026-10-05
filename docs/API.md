@@ -1,5 +1,7 @@
 # Chatz API 参考
 
+> **English**: [API.en.md](API.en.md)（章节级英文目录）
+
 所有 HTTP 接口基址：`http://<host>:20010` 或 `https://<host>:20443`
 
 WebSocket：`ws://<host>:20010/stream` 或 `wss://<host>:20443/stream`

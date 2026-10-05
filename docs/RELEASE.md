@@ -1,5 +1,7 @@
 # 发版流程（服务端 → GitHub + GHCR）
 
+> **English**: [RELEASE.en.md](RELEASE.en.md)
+
 镜像仓库：`ghcr.io/yezi8430/chatz`（公开仓库，Actions 自动构建推送）
 
 ## 标签是怎么来的

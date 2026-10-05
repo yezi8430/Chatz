@@ -1,5 +1,7 @@
 # 部署指南
 
+> **English**: [DEPLOY.en.md](DEPLOY.en.md)（章节级英文目录）
+
 从零到生产环境的完整指南。
 
 ## 目录

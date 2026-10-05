@@ -1,5 +1,7 @@
 # 模板语法
 
+> **English**: [TEMPLATE.en.md](TEMPLATE.en.md)
+
 Chatz 的 Webhook 支持用**模板**把第三方发来的原始 JSON 渲染成可读通知。模板用类似 Mustache 的语法，不需要学新东西。
 
 ## 快速开始
