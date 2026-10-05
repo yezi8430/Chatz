@@ -1018,6 +1018,13 @@ body::before {
   transition: background var(--dur-normal) var(--ease-out),
               box-shadow var(--dur-normal) var(--ease-out);
   position: relative;
+  /* ⚠️ 列表是 column flex + overflow-y:auto，只要内容超过容器高，收缩压力就一直在。
+     普通卡片靠 flex 项的自动下限（min-height:auto＝内容高度）天然压不扁；
+     但 has-image-bg 写死了 min-height:150px，会把自动下限**替换**掉 ——
+     卡片被压到 150px、footer 和展开的合并子项整体溢出到卡片外
+     （症状：footer 跑到卡片外、展开合并消息叠到下一张卡上）。
+     所以这里一刀切禁止收缩，卡片高度永远由内容决定。 */
+  flex-shrink: 0;
   /* 从 --shadow-xs(0.06) 提到 --shadow-sm：列表里几十张卡片，
      xs 那档几乎看不出边界，卡片像是浮在背景上没有层次 */
   box-shadow: var(--shadow-sm);
@@ -3106,3 +3113,37 @@ body.glass-on .msg-card.has-image-bg {
   background: rgba(0, 0, 0, 0.35);
   color: #fff;
 }
+
+/* 展开的合并消息（agg 子项）也躺在深色底上，深色字会直接糊进图里，
+   得跟着转白 —— 白名单和上面 .msg-body 那组同理，逐个覆盖。 */
+.msg-card.has-image-bg .agg-child-title,
+.msg-card.has-image-bg .agg-child-body {
+  color: #fff;
+}
+.msg-card.has-image-bg .agg-child-head,
+.msg-card.has-image-bg .agg-child-time {
+  color: rgba(255, 255, 255, 0.78);
+}
+.msg-card.has-image-bg .agg-child-num {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.msg-card.has-image-bg .agg-child + .agg-child {
+  border-top-color: rgba(255, 255, 255, 0.22);
+}
+.msg-card.has-image-bg .agg-children {
+  border-left-color: rgba(255, 255, 255, 0.30);
+}
+.msg-card.has-image-bg .agg-child-body a {
+  color: #fff;
+  text-decoration: underline;
+}
+.msg-card.has-image-bg .agg-child-body code {
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+/* 优先级小标签直接搬深色主题那套配色：浅色主题的「深字浅底」在图上看不清 */
+.msg-card.has-image-bg .agg-child-prio.prio-low { background: rgba(59, 130, 246, 0.30); color: #bfdbfe; }
+.msg-card.has-image-bg .agg-child-prio.prio-normal { background: rgba(34, 197, 94, 0.30); color: #bbf7d0; }
+.msg-card.has-image-bg .agg-child-prio.prio-high { background: rgba(245, 158, 11, 0.30); color: #fde68a; }
+.msg-card.has-image-bg .agg-child-prio.prio-urgent { background: rgba(239, 68, 68, 0.30); color: #fecaca; }
