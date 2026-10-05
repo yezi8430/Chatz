@@ -286,22 +286,23 @@
     '<span class="tag-current">当前</span>': '<span class="tag-current">Current</span>',
     ' <span class="tag-current">当前</span>': ' <span class="tag-current">Current</span>',
     '未命名': 'Unnamed',
-    '复制完整 Token': 'Copy the full token',
     '「{0}」的': '\u201c{0}\u2019s ',
     '已复制{0}完整 Token': 'Copied {0}full token',
     '复制{0}Token 到设备上使用（当前为明文 HTTP，建议配好 HTTPS）：': 'Copy the {0}token to your device (currently plain HTTP; setting up HTTPS is recommended):',
-    // ── 主密钥二次验证（v1.2.1）：完整值不再随设备列表下发 ──
+    // ── 设备 Token 二次验证 ──
+    // v1.2.1：完整值不再随设备列表下发（只主密钥那一行）
+    // 2026-10-05：**每一行**都不下发了 —— 拿明文一律要验一次当前账号的密码
     '指纹 {0}…': 'Fingerprint {0}\u2026',
-    '验证密码后复制主密钥': 'Verify your password to copy the master key',
-    '查看主密钥': 'View master key',
+    '验证密码后复制': 'Verify your password to copy',
+    '查看 Token': 'View token',
     '当前密码': 'Current password',
     '登录密码': 'Login password',
     '验证并复制': 'Verify and copy',
     '请输入当前密码': 'Enter your current password',
-    '没拿到主密钥': 'Master key not returned',
+    '没拿到 Token': 'Token not returned',
     '验证失败': 'Verification failed',
-    '主密钥等同于超管身份，复制后请妥善保管。请输入当前登录账号的密码以继续。':
-      'The master key is equivalent to super-admin identity \u2014 store it safely once copied. Enter the password of the account you are signed in with to continue.',
+    'Token 是长期凭据，复制后请妥善保管。请输入当前登录账号的密码以继续。':
+      'A token is a long-lived credential \u2014 store it safely once copied. Enter the password of the account you are signed in with to continue.',
     '后台图、主题色、图片位置': 'Background image, accent color, image position',
     '背景图、主题色、图片位置': 'Background image, accent color, image position',
     '界面背景': 'Interface background',

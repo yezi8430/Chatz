@@ -1526,7 +1526,7 @@ body::before {
    给它单独抬一层即可（仍低于右键菜单/toast）。 */
 #passwordModal { z-index: 150; }
 
-/* 查看主密钥的二次验证框：它是从 #userModal（账户面板 → 安全与登录 → 登录设备）
+/* 查看设备 Token 的二次验证框：它是从 #userModal（账户面板 → 安全与登录 → 登录设备）
    **里面**点开的，而 #userModal 自己也是 .modal（z-index:100）。
    同为 100 时靠 DOM 顺序决定，排在后面才盖得住 —— 所以 CSS 里再抬一层做双保险
    （HTML 里也已经把它挪到所有 modal 之后了）。

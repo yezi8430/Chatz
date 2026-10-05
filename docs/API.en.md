@@ -528,9 +528,8 @@ nothing.
 
 ### `GET /device` logged in
 
-Returns **all** device tokens of the current user.
-
-🔴 **The single exception is the master-key row**: its plaintext is not sent, only a fingerprint.
+Returns all devices of the current user, **but no plaintext for any row** — only an 8-char
+fingerprint.
 
 ```json
 [
@@ -548,9 +547,9 @@ Returns **all** device tokens of the current user.
   {
     "id": 7,
     "name": "My phone",
-    "token": "cz.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "tokenPreview": null,
-    "tokenHidden": false,
+    "token": null,
+    "tokenPreview": "aB3cD5eF",
+    "tokenHidden": true,
     "isCurrent": false,
     "isMaster": false,
     "lastSeen": 1789968398982,
@@ -561,20 +560,25 @@ Returns **all** device tokens of the current user.
 
 | Field | Meaning |
 |---|---|
-| `token` | `null` for the master-key row; the full value for every other row |
-| `tokenPreview` | 8-char fingerprint of the master-key row (same algorithm as the startup log: skip the `cz.` prefix, take 8 chars). Only for matching this row against other records |
-| `tokenHidden` | When `true`, clients should turn the "Copy" button into "Verify password to copy" |
+| `token` | Always `null`. Get the full value from `POST /device/:id/reveal` |
+| `tokenPreview` | 8-char fingerprint (same algorithm as the startup log: skip the `cz.` prefix, take 8 chars). Only for matching this row against other records |
+| `tokenHidden` | Always `true`: clients should turn the "Copy" button into "Verify password to copy" |
+| `isMaster` | Whether this row is the global master key (only a super-admin has one; it cannot be deleted) |
 
-> Why the master key alone is hidden: it is the **global super-admin credential**, and this row is
-> visible to anyone who has the super-admin password. Once copied, changing your password does not
-> help — a password change does not revoke the master key, so it keeps working until you rotate the
-> master key itself. "Already logged in" is therefore not sufficient authorisation to see it.
-> Other device tokens are unaffected: those are issued to the owner at login and already sit in
-> localStorage.
+> Why every row is hidden now (since 2026-10-05 — previously only the master key was): a device
+> token is a **long-lived credential**, and "already logged in" is not sufficient authorisation to
+> see one. The device panel is far too easy to screenshot or glance at over someone's shoulder.
+> The master key especially: once copied, changing your password does not help — a password change
+> does not revoke the master key, so it keeps working until you rotate the master key itself.
+>
+> Two exceptions, both "generated on the spot, you would never get it otherwise":
+> `POST /device` (create) and `POST /device/rotate` return the new token once;
+> `POST /auth/login` hands the credential to the client by design.
 
 ### `POST /device/:id/reveal` logged in
 
-Fetches the master-key plaintext; **requires re-entering the password**.
+Fetches the plaintext of **any** device token; **requires re-entering the password** (the password
+of the currently logged-in account).
 
 ```json
 // request
@@ -586,19 +590,23 @@ Fetches the master-key plaintext; **requires re-entering the password**.
 
 | Case | Response |
 |---|---|
-| Correct password and the row is the master key | `200` + full token, plus a `device.reveal` audit entry |
+| Correct password | `200` + full token, plus a `device.reveal` audit entry |
 | Wrong password | `403` "Password incorrect" (`success: false` in the audit). 🔴 **Must not be 401** — clients treat every 401 as "session expired" and bounce to the login page, even though the user is clearly still logged in |
 | No `password` in the body | `400` "Enter your current password" |
-| The row is not the master key | `400` "This row does not need re-verification" |
 | The row belongs to another user | `404` "Device not found" |
 
-Rate limited to 10 / hour (`device_reveal`). The password is compared in memory once; it never
-reaches the log or the audit `meta`.
+Rate limited to 30 / hour (`device_reveal`, keyed by **user**, not IP — the account is what is
+being attacked). The password is compared in memory once; it never reaches the log or the audit
+`meta`.
+
+> Since 2026-10-05 **every** device row goes through this step (previously only the master key).
+> The window was widened from 10/h to 30/h accordingly: someone with a few devices would burn
+> through 10 requests quickly.
 
 > If you write your own client, follow the same principle: **do not render the full token on
 > screen** — that panel is often opened while screen-sharing, screenshotting or during remote
-> support. The web UI deliberately renders only the first 16 chars of ordinary rows (and just the
-> fingerprint for the master-key row); the full value goes to the clipboard via "Copy".
+> support. The web UI renders only the fingerprint in the list; the full value goes straight to the
+> clipboard via "Verify password to copy".
 
 ### `POST /device` logged in
 

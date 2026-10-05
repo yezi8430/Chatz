@@ -650,21 +650,26 @@ router.get('/device', requireAuth, (req, res) => {
   const masterToken = getAuthToken();
 
   res.json(rows.map(r => {
-    // 🔴 主密钥那一行**不下发明文**，只给指纹。
+    // 🔴 所有设备 Token 都**不下发明文**，只给指纹。
     //
-    // 它是全局超管凭据，而这一行会出现在任何一个拿到超管密码的人眼前 ——
-    // 抄走之后，你改密码也没用（改密码不作废主密钥），他能一直用到你换主密钥为止。
-    // 所以需要完整值时走 `POST /device/:id/reveal`，二次验一次密码才给。
-    // 别的设备 Token 不受影响：那本来就是登录时下发给本人、存在 localStorage 里的东西。
+    // 想拿完整值一律走 `POST /device/:id/reveal`，验一次当前账号的密码才给。
+    // 理由是「已登录」不足以授权看到长期凭据：设备列表这个面板太容易被截图 /
+    //     被旁边的人扫一眼，而设备 Token 是长期的、改密码也未必作废得了
+    //     （主密钥尤其：改密码根本不作废它）。
+    //
+    // 两处例外，都是「当场生成、不给就永远拿不到」：
+    //   · POST /device（新建）返回新 token 一次
+    //   · POST /device/rotate（更换）返回新 token 一次
+    // 登录（POST /auth/login）同理，本来就是把凭据交到客户端手里。
     const isMaster = r.token === masterToken;
     return {
       id: r.id,
       name: r.name,
-      token: isMaster ? null : r.token,
+      token: null,
       // 指纹：只用来「和别的记录对上」，跟启动日志里那 8 位同一套算法
-      tokenPreview: isMaster ? tokenFingerprint(r.token) : null,
-      // 前端据此把「复制」按钮改成「验密码后复制」
-      tokenHidden: isMaster,
+      tokenPreview: tokenFingerprint(r.token),
+      // 前端据此把「复制」按钮走成「验密码后复制」（现在每一行都是）
+      tokenHidden: true,
       isCurrent: r.id === req.deviceId,
       // 主密钥行（管理员登录复用的那枚全局 token）：
       // 前端据此把它显示成「主密钥」而不是「可注销的设备」——
@@ -677,16 +682,16 @@ router.get('/device', requireAuth, (req, res) => {
 });
 
 // ============================================================
-// 查看主密钥明文（二次验密码）
+// 查看设备 Token 明文（二次验密码）
 // ============================================================
 //
 // 为什么非要这一步：
-//   主密钥是全局超管凭据，而 `GET /device` 那一行会出现在**任何拿到超管密码的人**眼前。
-//   抄走之后你改密码也没用 —— 改密码不作废主密钥（它不在 devices 表里被轮换），
-//   他能一直用到你换主密钥为止。所以「已登录」不足以授权看它，得再验一次密码。
+//   「已登录」不足以授权看到一枚**长期凭据**。设备列表这个面板太容易被截图、
+//   被旁边的人扫一眼；而设备 Token 是长期的 —— 主密钥尤其，抄走之后你改密码
+//   也没用（改密码不作废主密钥），他能一直用到你换主密钥为止。
 //
-// 只对主密钥那一行生效：别的设备 Token 本来就是登录时下发给本人、
-//   躺在 localStorage / 客户端配置里的东西，`GET /device` 照常返回。
+// 🔴 2026-10-05 起**所有设备 Token 都要验**，不只是主密钥那一行：
+//    `GET /device` 现在对每一行都只下发指纹，所以这里是拿完整值的唯一入口。
 //
 // ⚠️ 密码**只在内存里比对一次**，不写日志、不进审计的 meta。
 router.post('/device/:id/reveal',
@@ -695,10 +700,13 @@ router.post('/device/:id/reveal',
   // 按 IP 的话，同一个出口 IP 下别人手滑几次就会把真正的超管锁在外面 ——
   // 而攻击者换个 IP 又能继续试，等于既误伤又没防住。
   // requireAuth 已经跑过，req.user 一定在。
+  // 窗口放宽到 30/h：以前只有主密钥一行要走这里，现在是**每一行**都要走，
+  // 一个有几台设备的人很快就能把 10 次用完。30 次对复制这个动作够用，
+  // 对爆破仍然足够慢（真要打到 30 次密码错误，账号早该被注意到了）。
   rateLimit({
-    windowMs: 3600000, max: 10, name: 'device_reveal',
+    windowMs: 3600000, max: 30, name: 'device_reveal',
     keyFn: (req) => 'u:' + (req.user && req.user.id),
-    message: '查看主密钥过于频繁，请稍后再试',
+    message: '查看 Token 过于频繁，请稍后再试',
   }),
   (req, res) => {
     const id = parseInt(req.params.id, 10);
@@ -714,11 +722,8 @@ router.post('/device/:id/reveal',
     ).get(id, req.user.id);
     if (!row) return res.status(404).json({ error: '设备不存在' });
 
-    // 只有主密钥需要这道手续；别的行前端已经拿到明文了，走这里没意义
-    if (row.token !== getAuthToken()) {
-      return res.status(400).json({ error: '这一行不需要二次验证' });
-    }
-
+    // 每一行都要验 —— `GET /device` 已经不给明文了，这里是唯一入口。
+    //
     // 🔴 必须是 **403**，不能是 401。
     //
     // 前端 api() 把任何 401 都当成「登录状态失效」：清 localStorage、弹回登录页。

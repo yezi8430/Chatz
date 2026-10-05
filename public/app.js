@@ -2444,12 +2444,12 @@ async function loadDevices() {
         <div class="device-info">
           <div class="device-name">${escapeHtml(d.name || chatzT('未命名'))}${d.isMaster ? chatzT(' <span class="tag-current">主密钥</span>') : (d.isCurrent ? chatzT(' <span class="tag-current">当前</span>') : '')}</div>
           <div class="device-token">${d.tokenHidden
-            // 主密钥：只显示指纹（服务端压根没下发完整值，前端这里也没有）
+            // 每一行都只显示指纹 —— 服务端压根没下发完整值，前端这里也没有
             ? chatzT('指纹 {0}…', [escapeHtml(d.tokenPreview || '')])
             : escapeHtml((d.token || '').slice(0, TOKEN_PREVIEW_LEN)) + '…'}</div>
         </div>
         <div class="device-actions">
-          <button class="icon-btn device-copy" data-id="${d.id}" title="${d.tokenHidden ? chatzT('验证密码后复制主密钥') : chatzT('复制完整 Token')}">${ICON_COPY}</button>
+          <button class="icon-btn device-copy" data-id="${d.id}" title="${chatzT('验证密码后复制')}">${ICON_COPY}</button>
           ${d.isMaster
             // 主密钥（管理员登录复用的全局 AUTH_TOKEN）不给「注销」按钮：
             // 删它没有意义 —— AUTH_TOKEN 走兜底分支照样有效，下次登录又补回来。
@@ -2470,7 +2470,8 @@ async function loadDevices() {
       const dev = devices.find(d => d.id === id);
       b.onclick = () => {
         if (!dev) return;
-        // 主密钥走「验密码后复制」：它等同于超管身份，且改密码作废不了它
+        // 每一行都要验密码后才给明文 —— 设备 Token 是长期凭据，
+        // 「已登录」不足以授权看到它（主密钥尤其：改密码根本作废不了它）
         if (dev.tokenHidden) openRevealMaster(dev);
         else copyToken(dev.token, dev.name);
       };
@@ -2541,9 +2542,10 @@ async function copyToken(token, deviceName) {
 // 主密钥：二次验密码才能复制
 // ============================================================
 //
-// 主密钥是全局超管凭据，`GET /device` 对它只返回指纹（服务端压根不下发完整值）。
-// 想拿明文必须再验一次当前账号的密码 —— 因为「已登录」不足以授权看它：
-// 抄走之后你改密码也没用，改密码不作废主密钥，他能一直用到你换主密钥为止。
+// `GET /device` 对**每一行**都只返回指纹（服务端压根不下发完整值）。
+// 想拿明文必须再验一次当前账号的密码 —— 设备 Token 是长期凭据，
+// 「已登录」不足以授权看到它：主密钥尤其，抄走之后你改密码也没用，
+// 改密码不作废主密钥，他能一直用到你换主密钥为止。
 
 let revealTargetDevice = null;
 
@@ -2583,7 +2585,7 @@ async function submitRevealMaster() {
       body: JSON.stringify({ password: pwd.value }),
       skipAuthLogout: true,
     });
-    if (!r?.token) { toast(chatzT('没拿到主密钥')); return; }
+    if (!r?.token) { toast(chatzT('没拿到 Token')); return; }
     pwd.value = '';
     closeModalAnimated(modal);
     await copyToken(r.token, dev.name);
