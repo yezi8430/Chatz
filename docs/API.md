@@ -1,6 +1,6 @@
 # Chatz API 参考
 
-> **English**: [API.en.md](API.en.md)（章节级英文目录）
+> **English**: [API.en.md](API.en.md)（逐接口的完整英文版）
 
 所有 HTTP 接口基址：`http://<host>:20010` 或 `https://<host>:20443`
 
@@ -72,11 +72,16 @@ Token 来源：
 |---|---|
 | **公开** | 无需 Token |
 | **登录** | 任何有效 Token |
-| **管理员** | `role = 1` 的用户（管**自己的**应用、路由规则；管不到频道，也看不到别人的应用/规则） |
+| **管理员** | `role = 1` 的用户（历史上用于管应用、路由规则；**当前 `requireAdmin` 已无任何调用点**） |
 | **超级管理员** | `role = 2` 的用户 |
 | **创建者/超级管理员** | 频道的创建者，或超级管理员 |
 | **频道订阅者/超级管理员** | 订阅了该频道，或超级管理员 |
 
+> ⚠️ 2026-10-01 起：`requireAdmin` 在 `src/` 里**已无任何调用点**（只在 `auth.js` 里定义），
+> 所有带权限的接口都走 `requireSuper`。实际上 role 1 的能力与 role 0 几乎一致，
+> 网页端角色下拉也不再提供 role 1（已存在的 role 1 账号保留原值直到被改动）。
+> 判断「能不能看全部」一律用 `isSuper`（或 `role === 2`）。
+>
 > ⚠️ 2026-10-01 起：**应用和路由规则改成按用户隔离**，所有登录用户都能管自己的一份，
 > 管理员不再有全局特权（只看得到自己的）。
 > **超管的「全知」也从日常接口收回**了 —— `GET /channel` / `GET /message` 等一律按订阅，
@@ -655,7 +660,7 @@ curl -X POST http://<host>:20010/user/avatar \
 
 任何情况下**当前发起请求的那台设备都不会被清掉**，不会把自己踢下线。
 
-约束：`new_password` 8–128 字符；不能和当前密码相同（否则 `400`）；
+约束：`new_password` **6–128** 字符（与注册 / 引导 / 重置三个入口一致）；不能和当前密码相同（否则 `400`）；
 **非超级管理员**改他人返回 `403`（普通管理员改不了别人密码）。限速每 IP 每 10 分钟 10 次。
 
 > ⚠️ 改自己的密码不再校验旧密码，意味着**拿到一枚设备 Token 就能改密码**——
@@ -710,7 +715,7 @@ curl -X POST http://<host>:20010/user/avatar \
 | 能力 | 普通用户 | 管理员 (1) | 超级管理员 (2) |
 |---|---|---|---|
 | 自己订阅的频道 | ✅ | ✅ | ✅ |
-| 应用、路由规则 | ❌ | ✅ | ✅ |
+| 应用、路由规则（自己的） | ✅ | ✅ | ✅ |
 | HTTPS 证书 | ❌ | ❌ | ✅ |
 | 审计日志 | ❌ | ❌ | ✅ |
 | 改 / 删别人的频道 | ❌ | ❌ | ✅ |
@@ -998,7 +1003,7 @@ curl -X POST http://<host>:20010/channel/2/icon \
 > 不要自己从最后一条里推算。`next` 为 `null` 表示已拉到底。
 > 客户端要把**两个游标都落盘**，中途失败才不会漏掉同刻剩余行。
 >
-> 权限同 `GET /message`：管理员看全部，普通用户只看**已订阅频道**的删除
+> 权限同 `GET /message`：**一律按订阅，超管也不例外** —— 普通用户只看**已订阅频道**的删除
 > （否则别的频道的删除 id 会泄漏）。没有任何订阅时直接返回空数组。
 >
 > ⚠️ 这个接口依赖已删的行**还在**（软删除，只写 `deleted_at`）。
@@ -1205,9 +1210,11 @@ curl "http://<host>:20010/message/search?q=告警" \
 | internal | 恒为 `false`（为兼容 Gotify 客户端保留） |
 | defaultPriority | 恒为 `0`（同上，未实现） |
 
-> 🔒 **这个接口要管理员权限，而且会返回明文 token。**
+> 🔒 **这个接口会返回明文 token，所以历史上要求管理员权限。**
 > 2026-09-30 之前它只要求登录、不看角色 —— 注册是开放的，等于任何人注册个账号
-> 就能拿到全部应用的 Webhook 凭据。现在收紧到 `requireAdmin`。
+> 就能拿到全部应用的 Webhook 凭据。之后收紧到 `requireAdmin`；
+> 2026-10-01 起改成**按 `user_id` 过滤**，每人只能拿到自己创建的，
+> 泄露面回到「只有归属者」，于是权限回到「仅登录」。
 >
 > ⚠️ 曾经这里写的是 `token: row.token || AUTH_TOKEN`，即 token 为空时回落到
 > **全局主密钥**。主密钥 = 超级管理员身份（能提升任意人、读所有私有频道），
@@ -1548,9 +1555,9 @@ curl -H "Content-Type: application/json" \
 
 ## 9. HTTPS 证书
 
-全部接口均需管理员。请求体是 PEM 原文（`express.raw`）。
+全部接口均需**超级管理员**（`certs.js` 里对整个 `/certs` 挂了 `requireSuper`）。请求体是 PEM 原文（`express.raw`）。
 
-### `GET /certs/status` 管理员
+### `GET /certs/status` 超级管理员
 
 ```json
 {
@@ -1577,7 +1584,7 @@ curl -H "Content-Type: application/json" \
 
 `keyMatch: false` 时 `error` 里会写「证书与私钥不匹配」。
 
-### `POST /certs/fullchain` 管理员
+### `POST /certs/fullchain` 超级管理员
 
 ```bash
 curl -X POST http://<host>:20010/certs/fullchain \
@@ -1603,11 +1610,11 @@ curl -X POST http://<host>:20010/certs/fullchain \
 
 只上传了其中一个文件时不会启动 HTTPS，返回 `httpsStarted: false` 和「等待上传私钥 / 证书」。
 
-### `POST /certs/privkey` 管理员
+### `POST /certs/privkey` 超级管理员
 
 同样做私钥格式校验与配对校验。
 
-### `DELETE /certs` 管理员
+### `DELETE /certs` 超级管理员
 
 ```json
 {
@@ -1671,7 +1678,7 @@ curl -X POST http://<host>:20010/background \
 
 ## 11. 审计日志
 
-### `GET /audit` 管理员
+### `GET /audit` 超级管理员
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
@@ -1706,8 +1713,10 @@ curl -X POST http://<host>:20010/background \
 | `logout` | 登出（target = 设备 id） | — |
 | `auth.bad_token` | 拿到无效 token 调接口 | `method`、`path`、`tokenPrefix`（只留前 8 位） |
 | `auth.forbidden` | 已登录的普通用户撞管理员接口 | `method`、`path` |
+| `auth.forbidden_super` | 已登录用户撞超管接口（证书 / 审计 / 管理页） | `method`、`path`、`role` |
 | `hook.bad_token` | 用不存在的 token 调 webhook | `tokenPrefix`（只留前 8 位） |
 | `device.create` / `device.delete` | 签发 / 吊销设备 token | `name` |
+| `device.reveal` | 二次验密码后取主密钥明文 | `success` |
 | `user.avatar.upload` / `user.avatar.delete` | 头像 | target = 文件名 |
 | `user.background.upload` / `user.background.delete` | 聊天背景 | target = 文件名 |
 | `user.profile.update` | 改昵称 | `displayName` |
@@ -1728,7 +1737,7 @@ curl -X POST http://<host>:20010/background \
 
 节流与脱敏规则：
 
-- `auth.bad_token` / `auth.forbidden` / `hook.bad_token` 是**攻击者可刷**的失败事件，
+- `auth.bad_token` / `auth.forbidden` / `auth.forbidden_super` / `hook.bad_token` 是**攻击者可刷**的失败事件，
   按 IP（或用户 + 路径）**5 分钟只记一条**，否则一分钟就能灌进几十万行把真记录淹掉。
 - token 一律只记前 8 位，证书私钥**只记类型和位数、绝不记 PEM 内容** ——
   审计日志是给管理员在网页端翻的，不该成为第二个密钥仓库。
@@ -1831,9 +1840,11 @@ wss://<host>:20443/stream?token=<token>
 
 | 身份 | 收到 |
 |---|---|
-| 管理员 | 所有频道的消息 |
-| 普通用户 | 只收订阅频道的消息 |
-| 旧 `AUTH_TOKEN` | 视作管理员，收全部 |
+| 任何用户 | **只收订阅频道的消息** |
+
+⚠️ 2026-10-01 起这里也**没有管理员 / 超管特权**了：消息推送走 `broadcastToChannel`，
+只按 `ws.subscribedChannels` 筛人，超管也不例外。超管的「全站数据」走
+[第 15 节 `GET /admin/*`](#15-超管管理页全站只读)，不从这条实时流里拿。
 
 路由规则的 `broadcast_to` 会把一条消息投给多个频道，服务端用
 `broadcastToChannels` 做了**每客户端只投一次**的去重，不会重复收到同一条。
