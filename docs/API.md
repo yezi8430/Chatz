@@ -442,30 +442,73 @@ Token 来源：
 
 ### `GET /device` 登录
 
-返回当前用户的**全部**设备 Token（含完整值）：
+返回当前用户的**全部**设备 Token。
+
+🔴 **唯一例外是主密钥那一行**：它不下发明文，只给指纹。
 
 ```json
 [
   {
     "id": 1,
     "name": "默认 Token",
-    "token": "cz.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "token": null,
+    "tokenPreview": "kR9mX2pQ",
+    "tokenHidden": true,
     "isCurrent": true,
     "isMaster": true,
+    "lastSeen": 1789968398982,
+    "createdAt": 1789968398982
+  },
+  {
+    "id": 7,
+    "name": "我的手机",
+    "token": "cz.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "tokenPreview": null,
+    "tokenHidden": false,
+    "isCurrent": false,
+    "isMaster": false,
     "lastSeen": 1789968398982,
     "createdAt": 1789968398982
   }
 ]
 ```
 
-`isMaster` 标记这一行是不是全局主密钥（`token === AUTH_TOKEN`）。
-网页端据此把它渲染成不可删除的「主密钥」行 —— 它不是某台设备的凭据，
-删它也不会让任何设备下线。
+| 字段 | 说明 |
+|---|---|
+| `token` | 主密钥行为 `null`；其余行是完整值 |
+| `tokenPreview` | 主密钥行的 8 位指纹（算法同启动日志：跳过 `cz.` 前缀取 8 位），只用来和别的记录对上 |
+| `tokenHidden` | 为 `true` 时前端应把「复制」按钮改成「验密码后复制」 |
 
-> ⚠️ 响应里 `token` 是**完整值**，客户端拿到就能直接当凭据用。
-> 网页端设备面板刻意只在列表里渲染前 16 位，完整值走「复制」按钮进剪贴板 ——
-> 因为那个面板经常在投屏 / 截图 / 远程协助的环境里被打开。
-> 自己写客户端时也建议照这个原则处理，不要把完整 Token 渲染到界面上。
+> 为什么要单独藏起主密钥：它是**全局超管凭据**，而这一行会出现在任何一个拿到
+> 超管密码的人眼前。抄走之后你改密码也没用 —— 改密码不作废主密钥，
+> 他能一直用到你换主密钥为止。所以「已登录」不足以授权看它。
+> 别的设备 Token 不受影响：那本来就是登录时下发给本人、存在 localStorage 里的东西。
+
+### `POST /device/:id/reveal` 登录
+
+取主密钥明文，**必须二次验密码**。
+
+```json
+// 请求
+{"password": "当前登录账号的密码"}
+
+// 响应 200
+{"token": "cz.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+```
+
+| 情况 | 响应 |
+|---|---|
+| 密码正确且该行是主密钥 | `200` + 完整 token，同时写一条 `device.reveal` 审计 |
+| 密码错误 | `401 密码不正确`（审计里记 `success: false`） |
+| 没带 `password` | `400 请输入当前密码` |
+| 该行不是主密钥 | `400 这一行不需要二次验证` |
+| 该行不属于当前用户 | `404 设备不存在` |
+
+限流 10 次 / 小时（`device_reveal`）。密码只在内存里比对一次，不进日志、不进审计的 `meta`。
+
+> 自己写客户端时建议照这个原则处理：**不要把完整 Token 渲染到界面上**，
+> 面板经常在投屏 / 截图 / 远程协助的环境里被打开。
+> 网页端设备面板刻意只在列表里渲染前 16 位（主密钥行只渲染指纹），完整值走「复制」进剪贴板。
 
 ### `POST /device` 登录
 
@@ -482,7 +525,7 @@ Token 来源：
 ### `DELETE /device/:id` 登录
 
 - 删的是当前设备 → `400 不能删除正在使用的设备`
-- 删的是主密钥行（`token === AUTH_TOKEN`）→ `400 这是主密钥，无法删除（要更换请在 .env 里修改 AUTH_TOKEN）`
+- 删的是主密钥行（`token === AUTH_TOKEN`）→ `400 这是主密钥，无法删除（要更换请换掉 AUTH_TOKEN 本身）`
 - id 不存在 → `404 设备不存在`
 
 ```json

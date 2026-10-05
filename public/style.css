@@ -1593,6 +1593,21 @@ body::before {
   background: rgba(255, 255, 255, 0.1);
 }
 .modal-body textarea { resize: vertical; min-height: 100px; font-family: inherit; }
+
+/* 主密钥二次验证弹窗里的说明 / 错误提示 */
+.reveal-hint {
+  margin: 0 0 var(--sp-3);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.reveal-error {
+  margin: var(--sp-2) 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+.reveal-error[hidden] { display: none; }
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;

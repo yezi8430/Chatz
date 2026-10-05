@@ -150,6 +150,21 @@ function generateDeviceToken() {
   return DEVICE_TOKEN_PREFIX + out;
 }
 
+/**
+ * token 的**指纹**：只用来和别的记录对上，不用于认证
+ *
+ * 8 位，跳过 `cz.` 固定前缀 —— 前缀每个 token 都一样，算进指纹等于白占 3 位。
+ * 启动日志、设备列表里显示的都是这个，避免把完整凭据摊在屏幕上 / 写进日志。
+ *
+ * @param {string} token
+ * @returns {string} 8 位字符（token 本身短于 8 位时返回能取到的部分）
+ */
+function tokenFingerprint(token) {
+  const s = String(token || '');
+  const body = s.startsWith(DEVICE_TOKEN_PREFIX) ? s.slice(DEVICE_TOKEN_PREFIX.length) : s;
+  return body.slice(0, 8);
+}
+
 /** 判断一枚 token 是否符合当前设备 Token 格式（不含前缀校验以外的语义） */
 function isDeviceTokenFormat(token) {
   if (typeof token !== 'string') return false;
@@ -168,6 +183,7 @@ module.exports = {
   generateDeviceToken,
   isDeviceTokenFormat,
   tokenPrefix,
+  tokenFingerprint,
   TOKEN_LENGTH,
   TOKEN_PREFIX_LEN,
   DEVICE_TOKEN_PREFIX,

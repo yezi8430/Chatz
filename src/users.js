@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const db = require('./db');
 const { hashPassword, verifyPassword } = require('./migrate');
 const { resolveToken, extractToken, getAuthToken, requireSuper } = require('./auth');
-const { generateDeviceToken } = require('./tokenGen');
+const { generateDeviceToken, tokenFingerprint } = require('./tokenGen');
 const { rateLimit, rateLimitLogin } = require('./rateLimit');
 const audit = require('./audit');
 const ws = require('./ws');
@@ -608,19 +608,82 @@ router.get('/device', requireAuth, (req, res) => {
 
   const masterToken = getAuthToken();
 
-  res.json(rows.map(r => ({
-    id: r.id,
-    name: r.name,
-    token: r.token,
-    isCurrent: r.id === req.deviceId,
-    // 主密钥行（管理员登录复用的那枚全局 token）：
-    // 前端据此把它显示成「主密钥」而不是「可注销的设备」——
-    // 因为它删不掉（服务端会拦），也不该删。
-    isMaster: r.token === masterToken,
-    lastSeen: r.last_seen,
-    createdAt: r.created_at,
-  })));
+  res.json(rows.map(r => {
+    // 🔴 主密钥那一行**不下发明文**，只给指纹。
+    //
+    // 它是全局超管凭据，而这一行会出现在任何一个拿到超管密码的人眼前 ——
+    // 抄走之后，你改密码也没用（改密码不作废主密钥），他能一直用到你换主密钥为止。
+    // 所以需要完整值时走 `POST /device/:id/reveal`，二次验一次密码才给。
+    // 别的设备 Token 不受影响：那本来就是登录时下发给本人、存在 localStorage 里的东西。
+    const isMaster = r.token === masterToken;
+    return {
+      id: r.id,
+      name: r.name,
+      token: isMaster ? null : r.token,
+      // 指纹：只用来「和别的记录对上」，跟启动日志里那 8 位同一套算法
+      tokenPreview: isMaster ? tokenFingerprint(r.token) : null,
+      // 前端据此把「复制」按钮改成「验密码后复制」
+      tokenHidden: isMaster,
+      isCurrent: r.id === req.deviceId,
+      // 主密钥行（管理员登录复用的那枚全局 token）：
+      // 前端据此把它显示成「主密钥」而不是「可注销的设备」——
+      // 因为它删不掉（服务端会拦），也不该删。
+      isMaster,
+      lastSeen: r.last_seen,
+      createdAt: r.created_at,
+    };
+  }));
 });
+
+// ============================================================
+// 查看主密钥明文（二次验密码）
+// ============================================================
+//
+// 为什么非要这一步：
+//   主密钥是全局超管凭据，而 `GET /device` 那一行会出现在**任何拿到超管密码的人**眼前。
+//   抄走之后你改密码也没用 —— 改密码不作废主密钥（它不在 devices 表里被轮换），
+//   他能一直用到你换主密钥为止。所以「已登录」不足以授权看它，得再验一次密码。
+//
+// 只对主密钥那一行生效：别的设备 Token 本来就是登录时下发给本人、
+//   躺在 localStorage / 客户端配置里的东西，`GET /device` 照常返回。
+//
+// ⚠️ 密码**只在内存里比对一次**，不写日志、不进审计的 meta。
+router.post('/device/:id/reveal',
+  requireAuth,
+  rateLimit({ windowMs: 3600000, max: 10, name: 'device_reveal', message: '查看主密钥过于频繁，请稍后再试' }),
+  (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: '无效的 ID' });
+
+    const { password } = req.body || {};
+    if (typeof password !== 'string' || !password) {
+      return res.status(400).json({ error: '请输入当前密码' });
+    }
+
+    const row = db.prepare(
+      'SELECT id, name, token FROM devices WHERE id = ? AND user_id = ?'
+    ).get(id, req.user.id);
+    if (!row) return res.status(404).json({ error: '设备不存在' });
+
+    // 只有主密钥需要这道手续；别的行前端已经拿到明文了，走这里没意义
+    if (row.token !== getAuthToken()) {
+      return res.status(400).json({ error: '这一行不需要二次验证' });
+    }
+
+    const user = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!user || !user.password_hash || !verifyPassword(password, user.password_hash)) {
+      audit.fromReq(req, {
+        action: 'device.reveal',
+        target: String(id),
+        success: false,
+        meta: { reason: '密码错误' },
+      });
+      return res.status(401).json({ error: '密码不正确' });
+    }
+
+    audit.fromReq(req, { action: 'device.reveal', target: String(id), success: true });
+    res.json({ token: row.token });
+  });
 
 // ⚠️ 每调一次就签发一枚新的长期 token，之前完全没限流 ⇒ 能刷出一堆长期凭据
 router.post('/device',

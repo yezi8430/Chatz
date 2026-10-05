@@ -2386,15 +2386,18 @@ async function loadDevices() {
       <div class="device-item">
         <div class="device-info">
           <div class="device-name">${escapeHtml(d.name || chatzT('未命名'))}${d.isMaster ? chatzT(' <span class="tag-current">主密钥</span>') : (d.isCurrent ? chatzT(' <span class="tag-current">当前</span>') : '')}</div>
-          <div class="device-token">${escapeHtml(d.token.slice(0, TOKEN_PREVIEW_LEN))}…</div>
+          <div class="device-token">${d.tokenHidden
+            // 主密钥：只显示指纹（服务端压根没下发完整值，前端这里也没有）
+            ? chatzT('指纹 {0}…', [escapeHtml(d.tokenPreview || '')])
+            : escapeHtml((d.token || '').slice(0, TOKEN_PREVIEW_LEN)) + '…'}</div>
         </div>
         <div class="device-actions">
-          <button class="icon-btn device-copy" data-id="${d.id}" title="${chatzT('复制完整 Token')}">${ICON_COPY}</button>
+          <button class="icon-btn device-copy" data-id="${d.id}" title="${d.tokenHidden ? chatzT('验证密码后复制主密钥') : chatzT('复制完整 Token')}">${ICON_COPY}</button>
           ${d.isMaster
             // 主密钥（管理员登录复用的全局 AUTH_TOKEN）不给「注销」按钮：
             // 删它没有意义 —— AUTH_TOKEN 走兜底分支照样有效，下次登录又补回来。
             // 真要作废它，得换 .env / meta 里的 AUTH_TOKEN，不是在这个面板点两下。
-            ? `<button class="icon-btn device-del" disabled title="${chatzT('主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）')}" style="opacity:.35;cursor:not-allowed;">${ICON_TRASH}</button>`
+            ? `<button class="icon-btn device-del" disabled title="${chatzT('主密钥，无法删除（要更换请换掉 AUTH_TOKEN 本身）')}" style="opacity:.35;cursor:not-allowed;">${ICON_TRASH}</button>`
             : (d.isCurrent
               // 当前这枚：给「更换」（旧值立即失效、当场拿到新的）而不是删除 ——
               // 删除会被服务端拒（id === req.deviceId）
@@ -2408,7 +2411,12 @@ async function loadDevices() {
     list.querySelectorAll('.device-copy').forEach(b => {
       const id = parseInt(b.dataset.id, 10);
       const dev = devices.find(d => d.id === id);
-      b.onclick = () => { if (dev) copyToken(dev.token, dev.name); };
+      b.onclick = () => {
+        if (!dev) return;
+        // 主密钥走「验密码后复制」：它等同于超管身份，且改密码作废不了它
+        if (dev.tokenHidden) openRevealMaster(dev);
+        else copyToken(dev.token, dev.name);
+      };
     });
     list.querySelectorAll('.device-del').forEach(b => {
       b.onclick = () => deleteDevice(parseInt(b.dataset.id, 10));
@@ -2470,6 +2478,62 @@ async function copyToken(token, deviceName) {
   }
   // 明文 HTTP 环境下只能这样给；顺带提示用户这个页面的传输没加密
   prompt(chatzT('复制{0}Token 到设备上使用（当前为明文 HTTP，建议配好 HTTPS）：', [label]), token);
+}
+
+// ============================================================
+// 主密钥：二次验密码才能复制
+// ============================================================
+//
+// 主密钥是全局超管凭据，`GET /device` 对它只返回指纹（服务端压根不下发完整值）。
+// 想拿明文必须再验一次当前账号的密码 —— 因为「已登录」不足以授权看它：
+// 抄走之后你改密码也没用，改密码不作废主密钥，他能一直用到你换主密钥为止。
+
+let revealTargetDevice = null;
+
+function openRevealMaster(dev) {
+  revealTargetDevice = dev;
+  const modal = $('#revealMasterModal');
+  if (!modal) return;
+  const err = $('#revealError');
+  if (err) { err.hidden = true; err.textContent = ''; }
+  const pwd = $('#revealPassword');
+  if (pwd) pwd.value = '';
+  modal.classList.remove('hidden');
+  // 自动聚焦要等弹窗真的可见，否则部分浏览器拿不到焦点
+  setTimeout(() => pwd && pwd.focus(), 50);
+}
+
+async function submitRevealMaster() {
+  const dev = revealTargetDevice;
+  const modal = $('#revealMasterModal');
+  const pwd = $('#revealPassword');
+  const err = $('#revealError');
+  const btn = $('#revealSubmit');
+  if (!dev || !pwd) return;
+
+  if (!pwd.value) {
+    if (err) { err.textContent = chatzT('请输入当前密码'); err.hidden = false; }
+    pwd.focus();
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api(`/device/${dev.id}/reveal`, {
+      method: 'POST',
+      body: JSON.stringify({ password: pwd.value }),
+    });
+    if (!r?.token) { toast(chatzT('没拿到主密钥')); return; }
+    pwd.value = '';
+    closeModalAnimated(modal);
+    await copyToken(r.token, dev.name);
+  } catch (e) {
+    // 错误留在弹窗里而不是 toast：密码错了要能立刻看见、原地重试
+    if (err) { err.textContent = e.message || chatzT('验证失败'); err.hidden = false; }
+    pwd.focus();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function addDevice() {
@@ -4060,6 +4124,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#sendSubmit').onclick = submitSend;
   $('#chSubmit').onclick = submitChannel;
+
+  // 主密钥二次验证弹窗
+  $('#revealSubmit').onclick = submitRevealMaster;
+  const revealPwd = $('#revealPassword');
+  if (revealPwd) {
+    revealPwd.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submitRevealMaster(); }
+    });
+  }
 
   $('#chIconFile').addEventListener('change', (e) => {
     const file = e.target.files[0];

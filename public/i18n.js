@@ -279,6 +279,8 @@
     // ⚠️ 这两条 key **带前导空格**（app.js 里就是 chatzT(' <span…>')）。
     //    差一个空格就查不到，别顺手 trim。
     ' <span class="tag-current">主密钥</span>': ' <span class="tag-current">Master key</span>',
+    '主密钥，无法删除（要更换请换掉 AUTH_TOKEN 本身）': 'Master key, cannot be deleted (rotate AUTH_TOKEN itself to replace it)',
+    // 旧文案（已改）：'主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）'
     '主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）': 'Master key, cannot be deleted (change AUTH_TOKEN in .env instead)',
     '当前': 'Current',
     '<span class="tag-current">当前</span>': '<span class="tag-current">Current</span>',
@@ -288,6 +290,18 @@
     '「{0}」的': '\u201c{0}\u2019s ',
     '已复制{0}完整 Token': 'Copied {0}full token',
     '复制{0}Token 到设备上使用（当前为明文 HTTP，建议配好 HTTPS）：': 'Copy the {0}token to your device (currently plain HTTP; setting up HTTPS is recommended):',
+    // ── 主密钥二次验证（v1.2.1）：完整值不再随设备列表下发 ──
+    '指纹 {0}…': 'Fingerprint {0}\u2026',
+    '验证密码后复制主密钥': 'Verify your password to copy the master key',
+    '查看主密钥': 'View master key',
+    '当前密码': 'Current password',
+    '登录密码': 'Login password',
+    '验证并复制': 'Verify and copy',
+    '请输入当前密码': 'Enter your current password',
+    '没拿到主密钥': 'Master key not returned',
+    '验证失败': 'Verification failed',
+    '主密钥等同于超管身份，复制后请妥善保管。请输入当前登录账号的密码以继续。':
+      'The master key is equivalent to super-admin identity \u2014 store it safely once copied. Enter the password of the account you are signed in with to continue.',
     '后台图、主题色、图片位置': 'Background image, accent color, image position',
     '背景图、主题色、图片位置': 'Background image, accent color, image position',
     '界面背景': 'Interface background',
