@@ -13,6 +13,9 @@
      留内联脚本会直接被拦掉（首屏过渡和背景预置全部失效）。
      位置保持在 <body> 开头，同步执行，和原内联脚本时机一致。 -->
 <script src="/boot.js"></script>
+<!-- 中英切换：必须排在 app.js 之前（app.js 里的 chatzT 由它提供）。
+     它自己只翻静态 HTML；JS 拼出来的部分由 app.js 监听 chatz:langchange 重画。 -->
+<script src="/i18n.js"></script>
 
 <div class="bg-layer" id="bgLayer"></div>
 <div class="bg-dim" id="bgDimLayer"></div>
@@ -102,6 +105,8 @@
       </div>
       <div class="header-actions">
         <button id="themeToggle" class="icon-btn" title="切换主题"></button>
+        <!-- 语言切换：按钮上的字是「切过去的那一种」，由 i18n.js 维护 -->
+        <button id="langToggle" class="icon-btn lang-btn" title="切换语言">EN</button>
       </div>
     </div>
     <div class="sidebar-actions">

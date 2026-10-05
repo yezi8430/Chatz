@@ -1,4 +1,16 @@
 
+// ── 中英切换 ────────────────────────────────────────────────
+// chatzT() 由 /i18n.js 提供（index.html 里排在 app.js 之前加载）。
+// 兜一层：万一 i18n.js 没加载成功，退化成原样返回，界面照旧中文，
+// 不会整个脚本 ReferenceError 崩掉。
+//
+// ⚠️ 为什么叫 chatzT 而不是更短的 t：app.js 里有
+//    function ruleRowHtml(idx, row, types, t, kind) 和一堆 .map(t => ...)，
+//    用 t 会被局部作用域遮蔽，静默出错。
+var chatzT = (typeof window.chatzT === 'function')
+  ? window.chatzT
+  : function (s) { return s; };
+
 const ICON_CHANNEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>';
 const ICON_MAILBOX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 8l9 6 9-6"/></svg>';
 const ICON_MUTED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
@@ -44,9 +56,9 @@ function formatTime(iso) {
     const d = new Date(iso);
     const now = Date.now();
     const diff = now - d.getTime();
-    if (diff < 60000) return '刚刚';
-    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+    if (diff < 60000) return chatzT('刚刚');
+    if (diff < 3600000) return Math.floor(diff / 60000) + chatzT(' 分钟前');
+    if (diff < 86400000) return Math.floor(diff / 3600000) + chatzT(' 小时前');
     const y = d.getFullYear();
     const m = String(d.getMonth()+1).padStart(2,'0');
     const day = String(d.getDate()).padStart(2,'0');
@@ -86,7 +98,7 @@ async function api(path, opts = {}) {
     state.token = '';
     localStorage.removeItem('chatz_token');
     showLogin();
-    throw new Error('登录状态已失效，请重新登录');
+    throw new Error(chatzT('登录状态已失效，请重新登录'));
   }
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
@@ -194,13 +206,13 @@ async function doSetup() {
   const password2 = $('#setupPassword2').value;
   const err = $('#setupError');
 
-  if (!username || !password) { err.textContent = '请填写用户名和密码'; return; }
-  if (password !== password2) { err.textContent = '两次密码不一致'; return; }
-  if (password.length < 6) { err.textContent = '密码至少 6 位'; return; }
+  if (!username || !password) { err.textContent = chatzT('请填写用户名和密码'); return; }
+  if (password !== password2) { err.textContent = chatzT('两次密码不一致'); return; }
+  if (password.length < 6) { err.textContent = chatzT('密码至少 6 位'); return; }
 
   const btn = $('#setupBtn');
   btn.disabled = true;
-  btn.textContent = '正在创建…';
+  btn.textContent = chatzT('正在创建…');
 
   try {
     const res = await fetch('/setup', {
@@ -209,7 +221,7 @@ async function doSetup() {
       body: JSON.stringify({ username, password, displayName, email }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(j.error || '初始化失败');
+    if (!res.ok) throw new Error(j.error || chatzT('初始化失败'));
 
     state.token = j.token;
     localStorage.setItem('chatz_token', j.token);
@@ -226,7 +238,7 @@ async function doSetup() {
     err.textContent = e.message;
   } finally {
     btn.disabled = false;
-    btn.textContent = '创建管理员';
+    btn.textContent = chatzT('创建管理员');
   }
 }
 
@@ -255,10 +267,10 @@ async function doForgotPassword() {
   const emailEl = document.getElementById('forgotEmail');
   const email = emailEl ? emailEl.value.trim() : '';
   const err = $('#loginError');
-  if (!email) { err.textContent = '请输入邮箱'; return; }
+  if (!email) { err.textContent = chatzT('请输入邮箱'); return; }
 
   const btn = $('#forgotSubmitBtn');
-  btn.disabled = true; btn.textContent = '正在提交…';
+  btn.disabled = true; btn.textContent = chatzT('正在提交…');
   try {
     const res = await fetch('/auth/forgot-password', {
       method: 'POST',
@@ -267,11 +279,11 @@ async function doForgotPassword() {
     });
     const j = await res.json().catch(() => ({}));
     // 服务端固定回 200 + 一句通用提示（不泄露邮箱是否注册过）
-    err.textContent = j.message || '已提交，请查看服务日志';
+    err.textContent = j.message || chatzT('已提交，请查看服务日志');
   } catch (e) {
-    err.textContent = '请求失败：' + (e.message || e);
+    err.textContent = chatzT('请求失败：') + (e.message || e);
   } finally {
-    btn.disabled = false; btn.textContent = '获取重置链接';
+    btn.disabled = false; btn.textContent = chatzT('获取重置链接');
   }
 }
 
@@ -290,8 +302,8 @@ function showReset(token) {
     .then(r => r.json())
     .then(j => {
       if (j && j.valid === false) {
-        const reason = { used: '链接已被使用过', expired: '链接已过期', invalid: '链接无效' }[j.reason] || '链接无效';
-        $('#resetError').textContent = reason + '，请重新申请';
+        const reason = { used: chatzT('链接已被使用过'), expired: chatzT('链接已过期'), invalid: chatzT('链接无效') }[j.reason] || chatzT('链接无效');
+        $('#resetError').textContent = reason + chatzT('，请重新申请');
       }
     })
     .catch(() => {});
@@ -307,12 +319,12 @@ async function doResetPassword() {
   const p2 = $('#resetPassword2').value;
   const err = $('#resetError');
 
-  if (!p1) { err.textContent = '请输入新密码'; return; }
-  if (p1.length < 6) { err.textContent = '新密码至少 6 位'; return; }
-  if (p1 !== p2) { err.textContent = '两次输入的新密码不一致'; return; }
+  if (!p1) { err.textContent = chatzT('请输入新密码'); return; }
+  if (p1.length < 6) { err.textContent = chatzT('新密码至少 6 位'); return; }
+  if (p1 !== p2) { err.textContent = chatzT('两次输入的新密码不一致'); return; }
 
   const btn = $('#resetBtn');
-  btn.disabled = true; btn.textContent = '正在修改…';
+  btn.disabled = true; btn.textContent = chatzT('正在修改…');
   try {
     const res = await fetch('/auth/reset-password', {
       method: 'POST',
@@ -320,21 +332,21 @@ async function doResetPassword() {
       body: JSON.stringify({ token, password: p1 }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(j.error || '重置失败');
+    if (!res.ok) throw new Error(j.error || chatzT('重置失败'));
 
-    toast('密码已修改，请重新登录');
+    toast(chatzT('密码已修改，请重新登录'));
     showLogin();
   } catch (e) {
-    err.textContent = e.message || '重置失败';
+    err.textContent = e.message || chatzT('重置失败');
   } finally {
-    btn.disabled = false; btn.textContent = '修改密码';
+    btn.disabled = false; btn.textContent = chatzT('修改密码');
   }
 }
 
 async function doLogin() {
   const username = $('#loginUsername').value.trim();
   const password = $('#loginPassword').value;
-  if (!username || !password) { $('#loginError').textContent = '请输入用户名和密码'; return; }
+  if (!username || !password) { $('#loginError').textContent = chatzT('请输入用户名和密码'); return; }
   try {
     const res = await fetch('/auth/login', {
       method: 'POST',
@@ -343,7 +355,7 @@ async function doLogin() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || '登录失败');
+      throw new Error(j.error || chatzT('登录失败'));
     }
     const data = await res.json();
     state.token = data.token;
@@ -355,16 +367,16 @@ async function doLogin() {
 
 async function doTokenLogin() {
   const token = $('#loginToken').value.trim();
-  if (!token) { $('#loginError').textContent = '请输入 Token'; return; }
+  if (!token) { $('#loginError').textContent = chatzT('请输入 Token'); return; }
   state.token = token;
   try {
     await fetch('/channel', { headers: { 'Authorization': `Bearer ${token}` } })
-      .then(r => { if (!r.ok) throw new Error('Token 无效'); });
+      .then(r => { if (!r.ok) throw new Error(chatzT('Token 无效')); });
     localStorage.setItem('chatz_token', token);
     $('#loginError').textContent = '';
     await start();
   } catch (e) {
-    $('#loginError').textContent = 'Token 无效或服务器不可达';
+    $('#loginError').textContent = chatzT('Token 无效或服务器不可达');
     state.token = '';
   }
 }
@@ -377,8 +389,8 @@ async function doRegister() {
   const password = $('#regPassword').value;
   const password2 = $('#regPassword2').value;
 
-  if (!username || !password) { $('#loginError').textContent = '请填写完整'; return; }
-  if (password !== password2) { $('#loginError').textContent = '两次密码不一致'; return; }
+  if (!username || !password) { $('#loginError').textContent = chatzT('请填写完整'); return; }
+  if (password !== password2) { $('#loginError').textContent = chatzT('两次密码不一致'); return; }
 
   try {
     const res = await fetch('/auth/register', {
@@ -388,7 +400,7 @@ async function doRegister() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || '注册失败');
+      throw new Error(j.error || chatzT('注册失败'));
     }
     const data = await res.json();
     state.token = data.token;
@@ -631,7 +643,7 @@ function setConnStatus(s) {
   const el = $('#connStatus');
   el.classList.remove('connected', 'disconnected');
   el.classList.add(s);
-  el.querySelector('.text').textContent = s === 'connected' ? '已连接' : '连接断开';
+  el.querySelector('.text').textContent = s === 'connected' ? chatzT('已连接') : chatzT('连接断开');
 }
 
 // ============ 渲染 ============
@@ -645,7 +657,7 @@ function renderChannels() {
   allItem.className = 'ch-item' + (state.currentChannelId === -1 ? ' active' : '');
   allItem.innerHTML = `
     <span class="icon">${ICON_MAILBOX}</span>
-    <span class="name">所有频道</span>
+    <span class="name">${chatzT('所有频道')}</span>
     ${totalUnread > 0 ? `<span class="badge">${totalUnread > 99 ? '99+' : totalUnread}</span>` : ''}
   `;
   allItem.onclick = () => switchChannel(-1);
@@ -664,7 +676,7 @@ function renderChannels() {
       <span class="name">${escapeHtml(ch.name)}${ch.muted ? ` ${ICON_MUTED}` : ''}</span>
       <span class="ch-id">(ID:${ch.id})</span>
       ${unread > 0 ? `<span class="badge">${unread > 99 ? '99+' : unread}</span>` : ''}
-      <button class="more-btn" title="更多操作">\u22EF</button>
+      <button class="more-btn" title="${chatzT('更多操作')}">\u22EF</button>
     `;
 
     el.querySelector('.more-btn').onclick = (e) => openChannelMenu(e, ch);
@@ -727,13 +739,13 @@ function collapseIfTall(body) {
   body.classList.add('collapsed');
   const btn = document.createElement('button');
   btn.className = 'msg-expand';
-  btn.textContent = '展开全文';
+  btn.textContent = chatzT('展开全文');
   // 展开后按钮要留着并变成「收起」：原来这里直接 btn.remove()，
   // 展开之后就再也折叠不回去了，只能刷新页面才能重新变短
   btn.onclick = () => {
     const collapsed = body.classList.toggle('collapsed');
     body.classList.toggle('expanded', !collapsed);
-    btn.textContent = collapsed ? '展开全文' : '收起';
+    btn.textContent = collapsed ? chatzT('展开全文') : chatzT('收起');
   };
   body.parentNode.insertBefore(btn, body.nextSibling);
 }
@@ -780,9 +792,9 @@ function renderTagBanner() {
   }
   bar.classList.remove('hidden');
   bar.innerHTML = `
-    <span class="tag-filter-label">标签筛选</span>
+    <span class="tag-filter-label">${chatzT('标签筛选')}</span>
     <span class="tag-filter-chip">#${escapeHtml(tag)}</span>
-    <button class="tag-filter-clear" title="清除筛选">
+    <button class="tag-filter-clear" title="${chatzT('清除筛选')}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   `;
@@ -837,7 +849,7 @@ function renderMessages() {
   const cards = filtered.map((m, idx) => {
     const showDivider = lastUnreadIdx >= 0 && idx === lastUnreadIdx + 1;
     const divider = showDivider
-      ? `<div class="unread-divider">以下为已读消息</div>` : '';
+      ? chatzT('<div class="unread-divider">以下为已读消息</div>', []) : '';
 
     return divider + renderCard(m);
   }).join('');
@@ -861,7 +873,7 @@ function renderCard(m) {
   const chName = state.channels.find(c => c.id === m.channel_id)?.name || '';
   const readClass = m.isRead ? 'read' : 'unread';
   // 文案统一叫「收藏」（内部字段仍是 archivedAt，API 也没改，只是换个说法）
-  const archiveLabel = m.archivedAt ? '取消收藏' : '收藏';
+  const archiveLabel = m.archivedAt ? chatzT('取消收藏') : chatzT('收藏');
   const appIcon = getAppIcon(m.appid);
 
   const iconHtml = appIcon
@@ -909,7 +921,7 @@ function renderCard(m) {
         ${iconHtml}
         <div class="msg-title-row">
           <span class="msg-prio-dot ${pc}"></span>
-          <span class="msg-title">${escapeHtml(m.title || '无标题')}</span>
+          <span class="msg-title">${escapeHtml(m.title || chatzT('无标题'))}</span>
         </div>
         <div class="msg-time">${formatTime(m.date)}</div>
         <div class="msg-actions">
@@ -919,15 +931,15 @@ function renderCard(m) {
               ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M5 6v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6"/><path d="M12 16V9M9 12l3-3 3 3"/></svg>'
               : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M5 6v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6"/><path d="M12 11v7M9 14l3 3 3-3"/></svg>'}
           </button>
-          <button class="icon-btn act-unread" title="${m.isRead ? '标未读' : '标已读'}">
+          <button class="icon-btn act-unread" title="${m.isRead ? chatzT('标未读') : chatzT('标已读')}">
             ${m.isRead
               ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 5-5"/></svg>'
               : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>'}
           </button>
-          <button class="icon-btn delete-msg" title="删除">
+          <button class="icon-btn delete-msg" title="${chatzT('删除')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
-          ` : `<span class="msg-readonly" title="别人的频道，只能查看">只读</span>`}
+          ` : chatzT('<span class="msg-readonly" title="别人的频道，只能查看">只读</span>', [])}
         </div>
       </div>
       ${renderSender(m)}
@@ -936,8 +948,8 @@ function renderCard(m) {
       ${renderAggChildren(m)}
       <div class="msg-footer">
         ${chName ? `<span class="msg-app-tag">${escapeHtml(chName)}</span>` : ''}
-        <span class="msg-prio-tag ${pc}">优先级 ${m.priority}</span>
-        ${m.tags ? m.tags.map(t => `<span class="msg-app-tag tag-clickable" data-tag="${escapeHtml(t)}" title="筛选此标签">#${escapeHtml(t)}</span>`).join('') : ''}
+        <span class="msg-prio-tag ${pc}">${chatzT('优先级')} ${m.priority}</span>
+        ${m.tags ? m.tags.map(t => chatzT('<span class="msg-app-tag tag-clickable" data-tag="{0}" title="筛选此标签">#{1}</span>', [escapeHtml(t), escapeHtml(t)])).join('') : ''}
       </div>
     </div>
   `;
@@ -993,7 +1005,7 @@ function renderAggChildren(m) {
     <div class="agg-block">
       <button class="agg-toggle" data-id="${m.id}">
         <span class="agg-badge">× ${m.aggCount}</span>
-        <span class="agg-label">点击展开合并的消息</span>
+        <span class="agg-label">${chatzT('点击展开合并的消息')}</span>
       </button>
       <div class="agg-children" id="agg-${m.id}">
         ${items}
@@ -1018,7 +1030,7 @@ function renderSender(m) {
   const label = name === s.username
     ? escapeHtml(name)
     : `${escapeHtml(name)} <span class="msg-sender-at">@${escapeHtml(s.username)}</span>`;
-  const badge = s.isAdmin ? '<span class="msg-sender-admin">管理员</span>' : '';
+  const badge = s.isAdmin ? chatzT('<span class="msg-sender-admin">管理员</span>') : '';
   return `<div class="msg-sender">${label}${badge}</div>`;
 }
 
@@ -1034,7 +1046,7 @@ function renderSender(m) {
 function renderReplyQuote(m) {
   const quote = m.extras && m.extras['reply_to_text'];
   if (!quote) return '';
-  return `<div class="msg-reply-quote" title="引用的消息">
+  return `<div class="msg-reply-quote" title="${chatzT('引用的消息')}">
       <span class="msg-reply-bar"></span>
       <span class="msg-reply-text">${escapeHtml(String(quote))}</span>
     </div>`;
@@ -1078,7 +1090,7 @@ function updateEmptyState() {
   const text = $('#emptyText');
   const action = $('#emptyAction');
   if (state.searchQuery) {
-    text.textContent = `没有匹配「${state.searchQuery}」的消息`;
+    text.textContent = chatzT('没有匹配「{0}」的消息', [state.searchQuery]);
     action.classList.add('hidden');
   } else if (state.currentTag) {
     // 标签筛选用单独文案：否则会显示「还没有消息」，
@@ -1086,27 +1098,27 @@ function updateEmptyState() {
     // 这里也顺手把当前频道名带上，解释「为什么只看到这个范围」。
     const scope = state.currentChannelId === -1
       ? ''
-      : `「${state.channels.find(c => c.id === state.currentChannelId)?.name || '当前频道'}」中`;
-    text.textContent = `${scope}没有带 #${state.currentTag} 标签的消息`;
+      : chatzT('「{0}」中', [state.channels.find(c => c.id === state.currentChannelId)?.name || chatzT('当前频道')]);
+    text.textContent = chatzT('{0}没有带 #{1} 标签的消息', [scope, state.currentTag]);
     // 给一条出路：一键清掉筛选回到全部消息，而不是让用户自己找入口
     action.classList.remove('hidden');
-    action.textContent = '清除标签筛选';
+    action.textContent = chatzT('清除标签筛选');
     action.onclick = () => applyTagFilter(null);
   } else if (state.currentView === 'unread') {
-    text.textContent = '没有未读消息';
+    text.textContent = chatzT('没有未读消息');
     action.classList.add('hidden');
   } else if (state.currentView === 'archived') {
-    text.textContent = '没有收藏消息';
+    text.textContent = chatzT('没有收藏消息');
     action.classList.add('hidden');
   } else if (state.currentChannelId !== -1) {
-    text.textContent = '这个频道还没有消息';
+    text.textContent = chatzT('这个频道还没有消息');
     action.classList.remove('hidden');
-    action.textContent = '发送第一条消息';
+    action.textContent = chatzT('发送第一条消息');
     action.onclick = openSendModal;
   } else {
-    text.textContent = '还没有消息';
+    text.textContent = chatzT('还没有消息');
     action.classList.remove('hidden');
-    action.textContent = '发送第一条消息';
+    action.textContent = chatzT('发送第一条消息');
     action.onclick = openSendModal;
   }
 }
@@ -1143,7 +1155,9 @@ function bindCardEvents() {
     b.onclick = (e) => {
       e.stopPropagation();
       const id = parseInt(b.closest('.msg-card').dataset.id, 10);
-      const isRead = b.getAttribute('title') === '标未读';
+      // ⚠️ 这里比较的是「标未读」这个文案本身，必须跟着语言走：
+      //   英文下 title 已经被翻成 "Mark as unread"，写死中文会永远判 false。
+      const isRead = b.getAttribute('title') === chatzT('标未读');
       toggleRead(id, isRead);
     };
   });
@@ -1188,8 +1202,8 @@ function bindAggToggles() {
       const open = !el.classList.contains('open');
       el.classList.toggle('open', open);
       btn.querySelector('.agg-label').textContent = open
-        ? '点击收起'
-        : '点击展开合并的消息';
+        ? chatzT('点击收起')
+        : chatzT('点击展开合并的消息');
     };
   });
 }
@@ -1240,17 +1254,17 @@ function openMsgContextMenu(e, id) {
   menu.className = 'ctx-menu';
 
   const items = [
-    { text: '复制内容', fn: () => { navigator.clipboard.writeText(m.message || ''); toast('已复制'); } },
-    { text: '复制标题 + 内容', fn: () => {
+    { text: chatzT('复制内容'), fn: () => { navigator.clipboard.writeText(m.message || ''); toast(chatzT('已复制')); } },
+    { text: chatzT('复制标题 + 内容'), fn: () => {
         const text = (m.title ? m.title + '\n\n' : '') + (m.message || '');
         navigator.clipboard.writeText(text);
-        toast('已复制');
+        toast(chatzT('已复制'));
       } },
     { sep: true },
-    { text: m.isRead ? '标为未读' : '标为已读', fn: () => toggleRead(id, m.isRead) },
-    { text: m.archivedAt ? '取消收藏' : '收藏', fn: () => toggleArchive(id, !!m.archivedAt) },
+    { text: m.isRead ? chatzT('标为未读') : chatzT('标为已读'), fn: () => toggleRead(id, m.isRead) },
+    { text: m.archivedAt ? chatzT('取消收藏') : chatzT('收藏'), fn: () => toggleArchive(id, !!m.archivedAt) },
     { sep: true },
-    { text: '删除', fn: () => deleteMessage(id), danger: true },
+    { text: chatzT('删除'), fn: () => deleteMessage(id), danger: true },
   ];
 
   for (const item of items) {
@@ -1344,7 +1358,7 @@ function bindKeyboardShortcuts() {
   // 显示快捷键提示
   const hint = document.createElement('div');
   hint.className = 'kbd-hint';
-  hint.innerHTML = '<kbd>j</kbd><kbd>k</kbd> 导航 · <kbd>r</kbd> 已读 · <kbd>d</kbd> 删除 · <kbd>/</kbd> 搜索 · <kbd>n</kbd> 新消息';
+  hint.innerHTML = chatzT('<kbd>j</kbd><kbd>k</kbd> 导航 · <kbd>r</kbd> 已读 · <kbd>d</kbd> 删除 · <kbd>/</kbd> 搜索 · <kbd>n</kbd> 新消息');
   hint.id = 'kbdHint';
   document.body.appendChild(hint);
 }
@@ -1403,7 +1417,7 @@ function bindSearch() {
       state.searchResultCount = data.count || 0;
       renderMessages();
     } catch (e) {
-      toast('搜索失败：' + (e.message || '未知错误'));
+      toast(chatzT('搜索失败：') + (e.message || chatzT('未知错误')));
     }
   }
 
@@ -1453,8 +1467,8 @@ function switchChannel(channelId) {
   const _sc = document.getElementById('searchClear');
   if (_sc) _sc.classList.add('hidden');
   const title = channelId === -1
-    ? '所有消息'
-    : (state.channels.find(c => c.id === channelId)?.name || '频道');
+    ? chatzT('所有消息')
+    : (state.channels.find(c => c.id === channelId)?.name || chatzT('频道'));
   $('#currentTitle').textContent = title;
   renderChannels();
 
@@ -1485,7 +1499,7 @@ function switchView(view) {
 }
 
 async function deleteMessage(id) {
-  if (!confirm('确定删除这条消息？')) return;
+  if (!confirm(chatzT('确定删除这条消息？'))) return;
 
   const card = document.querySelector(`.msg-card[data-id="${id}"]`);
   if (card) {
@@ -1499,18 +1513,18 @@ async function deleteMessage(id) {
     if (state.focusedMsgId === id) state.focusedMsgId = null;
     renderMessages();
     loadUnreadCounts();
-    toast('已删除');
-  } catch { toast('删除失败'); }
+    toast(chatzT('已删除'));
+  } catch { toast(chatzT('删除失败')); }
 }
 
 async function toggleRead(id, wasRead) {
   try { await api(`/message/${id}/${wasRead ? 'unread' : 'read'}`, { method: 'POST' }); }
-  catch { toast('操作失败'); }
+  catch { toast(chatzT('操作失败')); }
 }
 
 async function toggleArchive(id, wasArchived) {
   try { await api(`/message/${id}/${wasArchived ? 'unarchive' : 'archive'}`, { method: 'POST' }); }
-  catch { toast('操作失败'); }
+  catch { toast(chatzT('操作失败')); }
 }
 
 async function markAllRead() {
@@ -1519,16 +1533,16 @@ async function markAllRead() {
       method: 'POST',
       body: JSON.stringify({}),
     });
-    toast(`已读 ${r.count} 条`);
-  } catch { toast('操作失败'); }
+    toast(chatzT('已读 {0} 条', [r.count]));
+  } catch { toast(chatzT('操作失败')); }
 }
 
 async function deleteChannel(id, name) {
-  if (!confirm(`删除频道「${name}」及其所有消息？`)) return;
+  if (!confirm(chatzT('删除频道「{0}」及其所有消息？', [name]))) return;
   try {
     await api(`/channel/${id}`, { method: 'DELETE' });
-    toast('频道已删除');
-  } catch { toast('删除失败'); }
+    toast(chatzT('频道已删除'));
+  } catch { toast(chatzT('删除失败')); }
 }
 
 function openSendModal() {
@@ -1555,7 +1569,7 @@ async function submitSend() {
   const message = $('#sendBody').value;
   const priority = parseInt($('#sendPriority').value, 10);
 
-  if (!message.trim()) { toast('内容不能为空'); return; }
+  if (!message.trim()) { toast(chatzT('内容不能为空')); return; }
 
   try {
     await api('/message', {
@@ -1563,8 +1577,8 @@ async function submitSend() {
       body: JSON.stringify({ channel_id, title: title || null, message, priority }),
     });
     $('#sendModal').classList.add('hidden');
-    toast('已发送');
-  } catch { toast('发送失败'); }
+    toast(chatzT('已发送'));
+  } catch { toast(chatzT('发送失败')); }
 }
 
 function openChannelModal() {
@@ -1583,7 +1597,7 @@ async function submitChannel() {
   const is_public = $('#chPublic').checked;
   const file = $('#chIconFile').files[0];
 
-  if (!name) { toast('名称不能为空'); return; }
+  if (!name) { toast(chatzT('名称不能为空')); return; }
 
   try {
     const created = await api('/channel', {
@@ -1600,13 +1614,13 @@ async function submitChannel() {
         },
         body: file,
       });
-      if (!res.ok) throw new Error('图标上传失败');
+      if (!res.ok) throw new Error(chatzT('图标上传失败'));
     }
 
     $('#channelModal').classList.add('hidden');
     await loadChannels();
-    toast('频道已创建');
-  } catch (e) { toast(e.message || '创建失败'); }
+    toast(chatzT('频道已创建'));
+  } catch (e) { toast(e.message || chatzT('创建失败')); }
 }
 
 // ============ 订阅管理 ============
@@ -1647,20 +1661,20 @@ function openChannelMenu(e, ch) {
   menu.className = 'ctx-menu';
 
   const items = [];
-  items.push({ text: ch.muted ? '取消静音' : '静音', fn: () => toggleMute(ch.id, !ch.muted) });
-  items.push({ text: '取消订阅', fn: () => unsubscribeChannel(ch.id, ch.name) });
+  items.push({ text: ch.muted ? chatzT('取消静音') : chatzT('静音'), fn: () => toggleMute(ch.id, !ch.muted) });
+  items.push({ text: chatzT('取消订阅'), fn: () => unsubscribeChannel(ch.id, ch.name) });
 
   const canEdit = canEditChannel(ch);
   if (canEdit) {
     items.push({ sep: true });
     // 改名 / 描述 / 公开性 / 图标全都在这一个弹窗里，菜单不再堆散项
-    items.push({ text: '管理频道', fn: () => openChannelEdit(ch) });
+    items.push({ text: chatzT('管理频道'), fn: () => openChannelEdit(ch) });
   }
 
   // 默认频道只允许改，不允许删（删了没有回落目标）
   if (ch.id !== 1 && canEdit) {
     items.push({ sep: true });
-    items.push({ text: '删除频道', fn: () => deleteChannel(ch.id, ch.name), danger: true });
+    items.push({ text: chatzT('删除频道'), fn: () => deleteChannel(ch.id, ch.name), danger: true });
   }
 
   for (const item of items) {
@@ -1738,11 +1752,11 @@ function updateChannelPwdUI(hasPwd) {
   if (!btn) return;
   if (chEditPwdCleared) {
     btn.style.display = '';
-    btn.textContent = '已标记清除（点保存生效）';
+    btn.textContent = chatzT('已标记清除（点保存生效）');
     btn.disabled = true;
   } else {
     btn.style.display = hasPwd ? '' : 'none';
-    btn.textContent = '清除密码';
+    btn.textContent = chatzT('清除密码');
     btn.disabled = false;
   }
 }
@@ -1760,7 +1774,7 @@ async function submitChannelEdit() {
   if (!ch) return;
 
   const name = $('#chEditName').value.trim();
-  if (!name) { toast('名称不能为空'); return; }
+  if (!name) { toast(chatzT('名称不能为空')); return; }
   const description = $('#chEditDesc').value.trim();
   const isPublic = $('#chEditPublic').checked;
   const pwd = $('#chEditPassword') ? $('#chEditPassword').value : '';
@@ -1773,7 +1787,7 @@ async function submitChannelEdit() {
   if (chEditPwdCleared) {
     body.password = '';               // 清除密码
   } else if (pwd) {
-    if (pwd.length < 4 || pwd.length > 64) { toast('频道密码需 4-64 位'); return; }
+    if (pwd.length < 4 || pwd.length > 64) { toast(chatzT('频道密码需 4-64 位')); return; }
     body.password = pwd;              // 设置新密码
   }
 
@@ -1789,8 +1803,8 @@ async function submitChannelEdit() {
     channelEditTarget = null;
     chEditPwdCleared = false;
     await loadChannels();
-    toast('频道已更新');
-  } catch (e) { toast(e.message || '保存失败'); }
+    toast(chatzT('频道已更新'));
+  } catch (e) { toast(e.message || chatzT('保存失败')); }
 }
 
 /**
@@ -1830,7 +1844,7 @@ async function uploadChannelIcon() {
   if (!ch || !file) return;
 
   const reset = () => { if (inp) inp.value = ''; };
-  if (file.size > 5 * 1024 * 1024) { toast('图片太大（限 5MB）'); reset(); return; }
+  if (file.size > 5 * 1024 * 1024) { toast(chatzT('图片太大（限 5MB）')); reset(); return; }
 
   try {
     const res = await fetch(`/channel/${ch.id}/icon`, {
@@ -1845,7 +1859,7 @@ async function uploadChannelIcon() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || '上传失败');
+      throw new Error(j.error || chatzT('上传失败'));
     }
     const data = await res.json();
 
@@ -1854,9 +1868,9 @@ async function uploadChannelIcon() {
     updateChannelIconDisplay(data.image);
     reset();
     await loadChannels();
-    toast('图标已更新');
+    toast(chatzT('图标已更新'));
   } catch (e) {
-    toast(e.message || '上传失败');
+    toast(e.message || chatzT('上传失败'));
     reset();
   }
 }
@@ -1864,7 +1878,7 @@ async function uploadChannelIcon() {
 async function removeChannelIconNow() {
   const ch = channelEditTarget;
   if (!ch) return;
-  if (!confirm(`移除「${ch.name}」的图标？`)) return;
+  if (!confirm(chatzT('移除「{0}」的图标？', [ch.name]))) return;
 
   try {
     await api(`/channel/${ch.id}`, {
@@ -1874,8 +1888,8 @@ async function removeChannelIconNow() {
     if (channelEditTarget) channelEditTarget.image = null;
     updateChannelIconDisplay(null);
     await loadChannels();
-    toast('图标已移除');
-  } catch (e) { toast(e.message || '操作失败'); }
+    toast(chatzT('图标已移除'));
+  } catch (e) { toast(e.message || chatzT('操作失败')); }
 }
 
 function bindChannelEditIcon() {
@@ -1903,20 +1917,20 @@ async function subscribeChannel(id, password) {
     await loadChannels();
     await loadMessages();
     await loadUnreadCounts();
-    toast('已订阅');
-  } catch (e) { toast(e.message || '订阅失败'); }
+    toast(chatzT('已订阅'));
+  } catch (e) { toast(e.message || chatzT('订阅失败')); }
 }
 
 async function unsubscribeChannel(id, name) {
-  if (!confirm(`取消订阅「${name}」？`)) return;
+  if (!confirm(chatzT('取消订阅「{0}」？', [name]))) return;
   try {
     await api(`/channel/${id}/subscribe`, { method: 'DELETE' });
     if (state.currentChannelId === id) state.currentChannelId = -1;
     await loadChannels();
     await loadMessages();
     await loadUnreadCounts();
-    toast('已取消订阅');
-  } catch (e) { toast(e.message || '操作失败'); }
+    toast(chatzT('已取消订阅'));
+  } catch (e) { toast(e.message || chatzT('操作失败')); }
 }
 
 async function toggleMute(id, muted) {
@@ -1926,8 +1940,8 @@ async function toggleMute(id, muted) {
       body: JSON.stringify({ muted }),
     });
     await loadChannels();
-    toast(muted ? '已静音' : '已取消静音');
-  } catch (e) { toast(e.message || '操作失败'); }
+    toast(muted ? chatzT('已静音') : chatzT('已取消静音'));
+  } catch (e) { toast(e.message || chatzT('操作失败')); }
 }
 
 // ============ 发现频道 ============
@@ -1948,7 +1962,7 @@ async function loadDiscoverList(q) {
     const el = $('#discoverList');
 
     if (list.length === 0) {
-      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">没有公开频道</div>';
+      el.innerHTML = chatzT('<div style="text-align:center;color:var(--text-muted);padding:20px;">没有公开频道</div>');
       return;
     }
 
@@ -1957,7 +1971,7 @@ async function loadDiscoverList(q) {
         ? `<img src="${escapeHtml(ch.image)}" alt="" onerror="this.replaceWith(ICON_CHANNEL)">`
         : ICON_CHANNEL;
       const lockBadge = ch.passwordProtected
-        ? ' <span class="ch-id" title="订阅需要密码">需密码</span>'
+        ? chatzT(' <span class="ch-id" title="订阅需要密码">需密码</span>')
         : '';
       return `
         <div class="discover-item" data-id="${ch.id}">
@@ -1982,7 +1996,7 @@ async function loadDiscoverList(q) {
         } else if (ch.passwordProtected && !canEditChannel(ch)) {
           // 受保护频道 + 非创建者/超管：先要密码，订阅动作移到 passwordSubmit
           pendingSubscribeId = id;
-          $('#passwordPromptText').textContent = `「${ch.name}」设置了订阅密码，输入后才能订阅`;
+          $('#passwordPromptText').textContent = chatzT('「{0}」设置了订阅密码，输入后才能订阅', [ch.name]);
           const pwdInput = $('#passwordInput');
           if (pwdInput) pwdInput.value = '';
           $('#passwordModal').classList.remove('hidden');
@@ -1995,7 +2009,7 @@ async function loadDiscoverList(q) {
       };
     });
   } catch (e) {
-    toast(e.message || '加载失败');
+    toast(e.message || chatzT('加载失败'));
   }
 }
 
@@ -2004,7 +2018,7 @@ async function submitPasswordSubscribe() {
   const id = pendingSubscribeId;
   const pwd = $('#passwordInput') ? $('#passwordInput').value : '';
   if (id == null) return;
-  if (!pwd) { toast('请输入密码'); return; }
+  if (!pwd) { toast(chatzT('请输入密码')); return; }
 
   let res;
   try {
@@ -2014,7 +2028,7 @@ async function submitPasswordSubscribe() {
       body: JSON.stringify({ password: pwd }),
     });
   } catch (e) {
-    toast('网络异常，请重试');
+    toast(chatzT('网络异常，请重试'));
     return;
   }
 
@@ -2023,11 +2037,11 @@ async function submitPasswordSubscribe() {
     $('#passwordModal').classList.add('hidden');
     pendingSubscribeId = null;
     await loadDiscoverList();
-    toast('已订阅');
+    toast(chatzT('已订阅'));
     return;
   }
 
-  let msg = '订阅失败';
+  let msg = chatzT('订阅失败');
   let retryAfter = 0;
   try {
     const j = await res.json();
@@ -2061,7 +2075,7 @@ function lockPasswordSubmit(seconds) {
   if (!btn) return;
   btn.disabled = true;
   let remain = seconds;
-  const render = () => { btn.textContent = `稍后再试（${remain}s）`; };
+  const render = () => { btn.textContent = chatzT('稍后再试（{0}s）', [remain]); };
   render();
   if (passwordLockTimer) clearInterval(passwordLockTimer);
   passwordLockTimer = setInterval(() => {
@@ -2070,7 +2084,7 @@ function lockPasswordSubmit(seconds) {
       clearInterval(passwordLockTimer);
       passwordLockTimer = null;
       btn.disabled = false;
-      btn.textContent = '订阅';
+      btn.textContent = chatzT('订阅');
     } else {
       render();
     }
@@ -2085,13 +2099,13 @@ function lockPasswordSubmit(seconds) {
 // 原来的账户面板是一条长列表，头像、背景、证书、设备全挤在一起 ——
 // 改成「首页列出分类 → 点进去是具体设置」，每类只装自己的东西。
 const SETTINGS_PAGES = {
-  appearance: { el: 'settingsAppearance', title: '外观' },
-  security:   { el: 'settingsSecurity',   title: '安全与登录' },
-  certs:      { el: 'settingsCerts',      title: 'HTTPS 证书' },
-  users:      { el: 'settingsUsers',      title: '用户管理' },
+  appearance: { el: 'settingsAppearance', title: chatzT('外观') },
+  security:   { el: 'settingsSecurity',   title: chatzT('安全与登录') },
+  certs:      { el: 'settingsCerts',      title: chatzT('HTTPS 证书') },
+  users:      { el: 'settingsUsers',      title: chatzT('用户管理') },
 };
 
-const ROLE_LABEL = { 0: '普通用户', 1: '管理员', 2: '超级管理员' };
+const ROLE_LABEL = { 0: chatzT('普通用户'), 1: chatzT('管理员'), 2: chatzT('超级管理员') };
 
 function showSettingsPage(key) {
   const home = document.getElementById('settingsHome');
@@ -2109,7 +2123,7 @@ function showSettingsPage(key) {
     back?.classList.remove('hidden');
   } else {
     home?.classList.remove('hidden');
-    if (title) title.textContent = '账户';
+    if (title) title.textContent = chatzT('账户');
     back?.classList.add('hidden');
   }
 
@@ -2161,22 +2175,22 @@ async function loadAdminList(tab) {
 
   const list = document.getElementById('adminList');
   if (!list) return;
-  list.textContent = '加载中...';
+  list.textContent = chatzT('加载中...');
 
   const endpoint = { channels: '/admin/channels', apps: '/admin/applications', rules: '/admin/routes' }[currentAdminTab];
 
   try {
     const rows = await api(endpoint);
-    if (!rows.length) { list.innerHTML = '<div class="admin-empty">没有数据</div>'; return; }
+    if (!rows.length) { list.innerHTML = chatzT('<div class="admin-empty">没有数据</div>'); return; }
 
     if (currentAdminTab === 'channels') {
       list.innerHTML = rows.map(c => `
         <div class="admin-row">
           <div class="admin-main">${escapeHtml(c.name)} <span class="ch-id">(ID:${c.id})</span></div>
           <div class="admin-sub">
-            归属：<b>${escapeHtml(c.creatorName || '未知')}</b>
-            · ${c.isPublic ? '公开' : '私有'}
-            ${c.passwordProtected ? ' · 有密码' : ''}
+            ${chatzT('归属：')}<b>${escapeHtml(c.creatorName || chatzT('未知'))}</b>
+            · ${c.isPublic ? chatzT('公开') : chatzT('私有')}
+            ${c.passwordProtected ? chatzT(' · 有密码') : ''}
           </div>
         </div>`).join('');
     } else if (currentAdminTab === 'apps') {
@@ -2184,8 +2198,8 @@ async function loadAdminList(tab) {
         <div class="admin-row">
           <div class="admin-main">${escapeHtml(a.name)} <span class="ch-id">(ID:${a.id})</span></div>
           <div class="admin-sub">
-            归属：<b>${escapeHtml(a.ownerName || '未知')}</b>
-            · 频道 ${a.channelId ?? '-'}
+            ${chatzT('归属：')}<b>${escapeHtml(a.ownerName || chatzT('未知'))}</b>
+            ${chatzT('· 频道')} ${a.channelId ?? '-'}
             · Token <code>${escapeHtml(a.token || '-')}</code>
           </div>
         </div>`).join('');
@@ -2194,24 +2208,24 @@ async function loadAdminList(tab) {
         <div class="admin-row">
           <div class="admin-main">${escapeHtml(r.name)} <span class="ch-id">(ID:${r.id})</span></div>
           <div class="admin-sub">
-            归属：<b>${escapeHtml(r.ownerName || '未知')}</b>
-            · ${r.enabled ? '启用' : '停用'} · 优先级 ${r.priority}
+            ${chatzT('归属：')}<b>${escapeHtml(r.ownerName || chatzT('未知'))}</b>
+            · ${r.enabled ? chatzT('启用') : chatzT('停用')} ${chatzT('· 优先级')} ${r.priority}
           </div>
         </div>`).join('');
     }
   } catch (e) {
-    list.innerHTML = `<div class="admin-empty">加载失败：${escapeHtml(e.message || '')}</div>`;
+    list.innerHTML = chatzT('<div class="admin-empty">加载失败：{0}</div>', [escapeHtml(e.message || '')]);
   }
 }
 
 async function loadUserMgmt() {
   const list = document.getElementById('userMgmtList');
   if (!list) return;
-  list.textContent = '加载中...';
+  list.textContent = chatzT('加载中...');
 
   try {
     const users = await api('/user/list');
-    if (!users.length) { list.textContent = '没有用户'; return; }
+    if (!users.length) { list.textContent = chatzT('没有用户'); return; }
 
     list.innerHTML = '';
     for (const u of users) {
@@ -2237,7 +2251,7 @@ async function loadUserMgmt() {
       // 自己不能改：服务端会拒绝（防止一次手滑把自己降下去）
       if (u.id === state.currentUser?.id) {
         sel.disabled = true;
-        sel.title = '不能修改自己的角色';
+        sel.title = chatzT('不能修改自己的角色');
       }
       sel.onchange = () => changeUserRole(u, parseInt(sel.value, 10), sel);
 
@@ -2246,13 +2260,13 @@ async function loadUserMgmt() {
       list.appendChild(row);
     }
   } catch (e) {
-    list.textContent = '加载失败：' + (e.message || '未知错误');
+    list.textContent = chatzT('加载失败：') + (e.message || chatzT('未知错误'));
   }
 }
 
 async function changeUserRole(u, role, sel) {
   const name = u.displayName || u.username;
-  if (!confirm(`把「${name}」的角色改成「${ROLE_LABEL[role]}」？`)) {
+  if (!confirm(chatzT('把「{0}」的角色改成「{1}」？', [name, ROLE_LABEL[role]]))) {
     sel.value = String(u.role); // 撤销界面上的改动
     return;
   }
@@ -2262,12 +2276,12 @@ async function changeUserRole(u, role, sel) {
       method: 'PATCH',
       body: JSON.stringify({ role }),
     });
-    toast('角色已更新');
+    toast(chatzT('角色已更新'));
     // 推送范围是按 isSuper 算的连接时快照，服务端已刷新该用户的在线连接；
     // 这里重新拉一次列表，保证界面显示的是新角色
     await loadUserMgmt();
   } catch (e) {
-    toast(e.message || '操作失败');
+    toast(e.message || chatzT('操作失败'));
     sel.value = String(u.role);
   }
 }
@@ -2283,7 +2297,7 @@ async function openUserModal() {
     const u = state.currentUser;
     const name = u.displayName || u.username;
     $('#userName').textContent = name;
-    $('#userSub').textContent = '@' + u.username + (u.isAdmin ? ' · 管理员' : '');
+    $('#userSub').textContent = '@' + u.username + (u.isAdmin ? chatzT(' · 管理员') : '');
     updateAvatarDisplay(u.avatar, name.charAt(0).toUpperCase());
     const emailEl = document.getElementById('emailInput');
     if (emailEl) emailEl.value = u.email || '';
@@ -2335,22 +2349,22 @@ async function loadDevices() {
     list.innerHTML = devices.map(d => `
       <div class="device-item">
         <div class="device-info">
-          <div class="device-name">${escapeHtml(d.name || '未命名')}${d.isMaster ? ' <span class="tag-current">主密钥</span>' : (d.isCurrent ? ' <span class="tag-current">当前</span>' : '')}</div>
+          <div class="device-name">${escapeHtml(d.name || chatzT('未命名'))}${d.isMaster ? chatzT(' <span class="tag-current">主密钥</span>') : (d.isCurrent ? chatzT(' <span class="tag-current">当前</span>') : '')}</div>
           <div class="device-token">${escapeHtml(d.token.slice(0, TOKEN_PREVIEW_LEN))}…</div>
         </div>
         <div class="device-actions">
-          <button class="icon-btn device-copy" data-id="${d.id}" title="复制完整 Token">${ICON_COPY}</button>
+          <button class="icon-btn device-copy" data-id="${d.id}" title="${chatzT('复制完整 Token')}">${ICON_COPY}</button>
           ${d.isMaster
             // 主密钥（管理员登录复用的全局 AUTH_TOKEN）不给「注销」按钮：
             // 删它没有意义 —— AUTH_TOKEN 走兜底分支照样有效，下次登录又补回来。
             // 真要作废它，得换 .env / meta 里的 AUTH_TOKEN，不是在这个面板点两下。
-            ? `<button class="icon-btn device-del" disabled title="主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）" style="opacity:.35;cursor:not-allowed;">${ICON_TRASH}</button>`
+            ? `<button class="icon-btn device-del" disabled title="${chatzT('主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）')}" style="opacity:.35;cursor:not-allowed;">${ICON_TRASH}</button>`
             : (d.isCurrent
               // 当前这枚：给「更换」（旧值立即失效、当场拿到新的）而不是删除 ——
               // 删除会被服务端拒（id === req.deviceId）
-              ? `<button class="icon-btn device-rotate" title="更换这枚 Token（旧值立即失效）">${ICON_REFRESH}</button>`
-                + `<button class="icon-btn device-logout" title="注销这台设备（等于删除它这枚 Token）">${ICON_LOGOUT}</button>`
-              : `<button class="icon-btn device-del" data-id="${d.id}" title="删除设备">${ICON_TRASH}</button>`)}
+              ? chatzT('<button class="icon-btn device-rotate" title="更换这枚 Token（旧值立即失效）">{0}</button>', [ICON_REFRESH])
+                + chatzT('<button class="icon-btn device-logout" title="注销这台设备（等于删除它这枚 Token）">{0}</button>', [ICON_LOGOUT])
+              : chatzT('<button class="icon-btn device-del" data-id="{0}" title="删除设备">{1}</button>', [d.id, ICON_TRASH]))}
         </div>
       </div>
     `).join('');
@@ -2383,16 +2397,16 @@ async function loadDevices() {
  * ⚠️ 别的设备若也用着这枚 token，会被一起踢下线，重新登录即可拿到新的。
  */
 async function rotateCurrentDevice() {
-  if (!confirm('更换这枚 Token？\n\n旧的值会立即失效，别的设备如果用着它会需要重新登录。')) return;
+  if (!confirm(chatzT('更换这枚 Token？\n\n旧的值会立即失效，别的设备如果用着它会需要重新登录。'))) return;
   try {
     const res = await api('/device/rotate', { method: 'POST' });
-    if (!res?.token) { toast('更换失败：没拿到新 Token'); return; }
+    if (!res?.token) { toast(chatzT('更换失败：没拿到新 Token')); return; }
     state.token = res.token;
     localStorage.setItem('chatz_token', res.token);
     await loadDevices();
-    toast('Token 已更换（旧值已失效）');
+    toast(chatzT('Token 已更换（旧值已失效）'));
   } catch (e) {
-    toast(e.message || '更换失败');
+    toast(e.message || chatzT('更换失败'));
   }
 }
 
@@ -2408,22 +2422,22 @@ async function rotateCurrentDevice() {
  *    功能不能因为环境不满足就直接坏掉。
  */
 async function copyToken(token, deviceName) {
-  const label = deviceName ? `「${deviceName}」的` : '';
+  const label = deviceName ? chatzT('「{0}」的', [deviceName]) : '';
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(token);
-      toast(`已复制${label}完整 Token`);
+      toast(chatzT('已复制{0}完整 Token', [label]));
       return;
     }
   } catch {
     // 落到下面的兜底
   }
   // 明文 HTTP 环境下只能这样给；顺带提示用户这个页面的传输没加密
-  prompt(`复制${label}Token 到设备上使用（当前为明文 HTTP，建议配好 HTTPS）：`, token);
+  prompt(chatzT('复制{0}Token 到设备上使用（当前为明文 HTTP，建议配好 HTTPS）：', [label]), token);
 }
 
 async function addDevice() {
-  const name = prompt('设备名称', '我的手机');
+  const name = prompt(chatzT('设备名称'), chatzT('我的手机'));
   if (!name) return;
   try {
     const d = await api('/device', {
@@ -2432,16 +2446,16 @@ async function addDevice() {
     });
     await copyToken(d.token, name);
     await loadDevices();
-  } catch { toast('添加失败'); }
+  } catch { toast(chatzT('添加失败')); }
 }
 
 async function deleteDevice(id) {
-  if (!confirm('删除该设备？该设备将无法再连接。')) return;
+  if (!confirm(chatzT('删除该设备？该设备将无法再连接。'))) return;
   try {
     await api(`/device/${id}`, { method: 'DELETE' });
     await loadDevices();
-    toast('设备已删除');
-  } catch (e) { toast(e.message || '删除失败'); }
+    toast(chatzT('设备已删除'));
+  } catch (e) { toast(e.message || chatzT('删除失败')); }
 }
 
 // ============ HTTPS 证书 ============
@@ -2458,29 +2472,29 @@ async function loadCertStatus() {
 
     if (s.httpsEnabled) {
       const ci = s.certInfo || {};
-      const parts = ['<span style="color:#22c55e;">已启用</span>'];
+      const parts = [chatzT('<span style="color:#22c55e;">已启用</span>')];
 
       const port = state.httpsPort || 20443;
       const host = location.hostname;
       const httpsUrl = `https://${host}${port !== 443 ? ':' + port : ''}/`;
-      parts.push(`访问地址 <a href="${httpsUrl}" target="_blank" style="color:var(--accent);text-decoration:none;">${httpsUrl}</a>`);
+      parts.push(chatzT('访问地址 <a href="{0}" target="_blank" style="color:var(--accent);text-decoration:none;">{1}</a>', [httpsUrl, httpsUrl]));
 
       if (ci.subject) parts.push(escapeHtml(ci.subject));
-      if (ci.validTo) parts.push('有效期至 ' + escapeHtml(ci.validTo));
+      if (ci.validTo) parts.push(chatzT('有效期至 ') + escapeHtml(ci.validTo));
       if (ci.hasChain === false) {
-        parts.push('<span style="color:#f59e0b;">证书链不完整（可能只有叶证书）</span>');
+        parts.push(chatzT('<span style="color:#f59e0b;">证书链不完整（可能只有叶证书）</span>'));
       }
       el.innerHTML = parts.join(' · ');
     } else if (s.hasCrt || s.hasKey) {
       const missing = [];
-      if (!s.hasCrt) missing.push('证书');
-      if (!s.hasKey) missing.push('私钥');
-      el.innerHTML = '<span style="color:#f59e0b;">还缺 ' + missing.join(' 和 ') + '</span>';
+      if (!s.hasCrt) missing.push(chatzT('证书'));
+      if (!s.hasKey) missing.push(chatzT('私钥'));
+      el.innerHTML = chatzT('<span style="color:#f59e0b;">还缺 ') + missing.join(chatzT(' 和 ')) + '</span>';
     } else {
-      el.innerHTML = '<span style="color:var(--text-muted);">未配置（仅 HTTP）</span>';
+      el.innerHTML = chatzT('<span style="color:var(--text-muted);">未配置（仅 HTTP）</span>');
     }
   } catch (e) {
-    $('#certStatus').textContent = '加载失败：' + (e.message || '');
+    $('#certStatus').textContent = chatzT('加载失败：') + (e.message || '');
   }
 }
 
@@ -2489,7 +2503,7 @@ async function uploadCert() {
   const keyFile = $('#certKeyFile').files[0];
 
   if (!crtFile || !keyFile) {
-    toast('请同时选择证书文件和私钥文件');
+    toast(chatzT('请同时选择证书文件和私钥文件'));
     return;
   }
 
@@ -2508,7 +2522,7 @@ async function uploadCert() {
     });
     const j1 = await r1.json().catch(() => ({}));
     if (!r1.ok) {
-      throw new Error(j1.error || '证书上传失败');
+      throw new Error(j1.error || chatzT('证书上传失败'));
     }
 
     // 上传私钥
@@ -2522,10 +2536,10 @@ async function uploadCert() {
     });
     const j2 = await r2.json().catch(() => ({}));
     if (!r2.ok) {
-      throw new Error(j2.error || '私钥上传失败');
+      throw new Error(j2.error || chatzT('私钥上传失败'));
     }
 
-    toast(j2.message || j1.message || '证书已上传并生效');
+    toast(j2.message || j1.message || chatzT('证书已上传并生效'));
     await loadCertStatus();
 
     // 清空 input
@@ -2535,26 +2549,26 @@ async function uploadCert() {
     if (keyInput) keyInput.value = '';
     const n1 = document.getElementById('certCrtFile-name');
     const n2 = document.getElementById('certKeyFile-name');
-    if (n1) { n1.textContent = '未选择'; n1.classList.remove('has-file'); }
-    if (n2) { n2.textContent = '未选择'; n2.classList.remove('has-file'); }
+    if (n1) { n1.textContent = chatzT('未选择'); n1.classList.remove('has-file'); }
+    if (n2) { n2.textContent = chatzT('未选择'); n2.classList.remove('has-file'); }
   } catch (e) {
-    toast(e.message || '上传失败');
+    toast(e.message || chatzT('上传失败'));
   }
 }
 
 async function deleteCert() {
-  if (!confirm('删除证书？删除后 HTTPS 将不可用（需重启容器完全生效）。')) return;
+  if (!confirm(chatzT('删除证书？删除后 HTTPS 将不可用（需重启容器完全生效）。'))) return;
   try {
     await api('/certs', { method: 'DELETE' });
-    toast('证书已删除');
+    toast(chatzT('证书已删除'));
     await loadCertStatus();
   } catch (e) {
-    toast(e.message || '删除失败');
+    toast(e.message || chatzT('删除失败'));
   }
 }
 
 async function doLogout() {
-  if (!confirm('退出登录？')) return;
+  if (!confirm(chatzT('退出登录？'))) return;
   await finishLogout();
 }
 
@@ -2578,7 +2592,7 @@ async function doLogout() {
  * 服务端也不会删它。所以本函数只对普通用户设备生效。
  */
 async function logoutCurrentDevice() {
-  if (!confirm('注销这台设备？\n\n这枚 Token 会立即失效并被删除，之后需要用别的凭据重新登录。')) return;
+  if (!confirm(chatzT('注销这台设备？\n\n这枚 Token 会立即失效并被删除，之后需要用别的凭据重新登录。'))) return;
   await finishLogout();
 }
 
@@ -2616,27 +2630,27 @@ async function finishLogout() {
 // ============ 路由规则 ============
 
 const CONDITION_TYPES = [
-  { key: 'priority_gte', label: '优先级 ≥', type: 'number' },
-  { key: 'priority_lte', label: '优先级 ≤', type: 'number' },
-  { key: 'priority_eq', label: '优先级 =', type: 'number' },
-  { key: 'body_matches', label: '内容匹配（正则）', type: 'text' },
-  { key: 'title_matches', label: '标题匹配（正则）', type: 'text' },
-  { key: 'channel', label: '频道名 =', type: 'text' },
-  { key: 'channel_id', label: '频道 ID =', type: 'number' },
-  { key: 'source_app', label: '来源应用 =', type: 'text' },
-  { key: 'time_between', label: '时间段', type: 'time_pair' },
-  { key: 'tag_includes', label: '包含标签', type: 'tags' },
+  { key: 'priority_gte', label: chatzT('优先级 ≥'), type: 'number' },
+  { key: 'priority_lte', label: chatzT('优先级 ≤'), type: 'number' },
+  { key: 'priority_eq', label: chatzT('优先级 ='), type: 'number' },
+  { key: 'body_matches', label: chatzT('内容匹配（正则）'), type: 'text' },
+  { key: 'title_matches', label: chatzT('标题匹配（正则）'), type: 'text' },
+  { key: 'channel', label: chatzT('频道名 ='), type: 'text' },
+  { key: 'channel_id', label: chatzT('频道 ID ='), type: 'number' },
+  { key: 'source_app', label: chatzT('来源应用 ='), type: 'text' },
+  { key: 'time_between', label: chatzT('时间段'), type: 'time_pair' },
+  { key: 'tag_includes', label: chatzT('包含标签'), type: 'tags' },
 ];
 
 const ACTION_TYPES = [
-  { key: 'set_priority', label: '设为优先级', type: 'number' },
-  { key: 'add_tag', label: '加标签', type: 'text' },
-  { key: 'remove_tag', label: '移除标签', type: 'text' },
-  { key: 'set_silent', label: '静默', type: 'bool' },
-  { key: 'broadcast_to', label: '转发到频道 ID', type: 'channels' },
-  { key: 'add_prefix', label: '加前缀', type: 'text' },
-  { key: 'call_webhook', label: '调用 Webhook', type: 'text' },
-  { key: 'drop', label: '丢弃消息', type: 'none' },
+  { key: 'set_priority', label: chatzT('设为优先级'), type: 'number' },
+  { key: 'add_tag', label: chatzT('加标签'), type: 'text' },
+  { key: 'remove_tag', label: chatzT('移除标签'), type: 'text' },
+  { key: 'set_silent', label: chatzT('静默'), type: 'bool' },
+  { key: 'broadcast_to', label: chatzT('转发到频道 ID'), type: 'channels' },
+  { key: 'add_prefix', label: chatzT('加前缀'), type: 'text' },
+  { key: 'call_webhook', label: chatzT('调用 Webhook'), type: 'text' },
+  { key: 'drop', label: chatzT('丢弃消息'), type: 'none' },
 ];
 
 let editingRouteId = null;
@@ -2653,7 +2667,7 @@ async function loadRouteList() {
     const routes = await api('/route');
     const el = $('#routeList');
     if (routes.length === 0) {
-      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">还没有规则</div>';
+      el.innerHTML = chatzT('<div style="text-align:center;color:var(--text-muted);padding:20px;">还没有规则</div>');
       return;
     }
 
@@ -2679,14 +2693,14 @@ async function loadRouteList() {
             <div class="rt-prio">P${r.priority}</div>
           </div>
           <div class="rt-desc">
-            条件：${condText || '<code>无</code>'}<br>
-            动作：${actText || '<code>无</code>'}
+            ${chatzT('条件：')}${condText || chatzT('<code>无</code>')}<br>
+            ${chatzT('动作：')}${actText || chatzT('<code>无</code>')}
           </div>
           <div class="rt-actions">
-            <button class="rt-toggle">${r.enabled ? '禁用' : '启用'}</button>
-            <button class="rt-edit">编辑</button>
-            <button class="rt-test">测试</button>
-            <button class="rt-delete danger">删除</button>
+            <button class="rt-toggle">${r.enabled ? chatzT('禁用') : chatzT('启用')}</button>
+            <button class="rt-edit">${chatzT('编辑')}</button>
+            <button class="rt-test">${chatzT('测试')}</button>
+            <button class="rt-delete danger">${chatzT('删除')}</button>
           </div>
         </div>
       `;
@@ -2701,7 +2715,7 @@ async function loadRouteList() {
       item.querySelector('.rt-test').onclick = () => testRoute(r);
       item.querySelector('.rt-delete').onclick = () => deleteRoute(id, r.name);
     });
-  } catch (e) { toast(e.message || '加载失败'); }
+  } catch (e) { toast(e.message || chatzT('加载失败')); }
 }
 
 async function toggleRoute(id, enabled) {
@@ -2711,23 +2725,23 @@ async function toggleRoute(id, enabled) {
       body: JSON.stringify({ enabled }),
     });
     await loadRouteList();
-    toast(enabled ? '已启用' : '已禁用');
-  } catch (e) { toast(e.message || '操作失败'); }
+    toast(enabled ? chatzT('已启用') : chatzT('已禁用'));
+  } catch (e) { toast(e.message || chatzT('操作失败')); }
 }
 
 async function deleteRoute(id, name) {
-  if (!confirm(`删除规则「${name}」？`)) return;
+  if (!confirm(chatzT('删除规则「{0}」？', [name]))) return;
   try {
     await api(`/route/${id}`, { method: 'DELETE' });
     await loadRouteList();
-    toast('已删除');
-  } catch (e) { toast(e.message || '删除失败'); }
+    toast(chatzT('已删除'));
+  } catch (e) { toast(e.message || chatzT('删除失败')); }
 }
 
 async function testRoute(r) {
-  const msg = prompt('输入测试消息内容：', '服务器挂了');
+  const msg = prompt(chatzT('输入测试消息内容：'), chatzT('服务器挂了'));
   if (msg == null) return;
-  const prio = prompt('输入优先级：', '9');
+  const prio = prompt(chatzT('输入优先级：'), '9');
   if (prio == null) return;
 
   try {
@@ -2740,18 +2754,18 @@ async function testRoute(r) {
       }),
     });
     alert(
-      `命中：${result.matched ? '是' : '否'}\n` +
-      `丢弃：${result.dropped ? '是' : '否'}\n` +
-      `静默：${result.silent ? '是' : '否'}\n` +
-      `最终优先级：${result.result.priority}\n` +
-      `最终标签：${(result.result.tags || []).join(', ') || '无'}`
+      chatzT('命中：{0}\\n', [result.matched ? chatzT('是') : chatzT('否')]) +
+      chatzT('丢弃：{0}\\n', [result.dropped ? chatzT('是') : chatzT('否')]) +
+      chatzT('静默：{0}\\n', [result.silent ? chatzT('是') : chatzT('否')]) +
+      chatzT('最终优先级：{0}\\n', [result.result.priority]) +
+      chatzT('最终标签：{0}', [(result.result.tags || []).join(', ') || chatzT('无')])
     );
-  } catch (e) { toast(e.message || '测试失败'); }
+  } catch (e) { toast(e.message || chatzT('测试失败')); }
 }
 
 function openRouteEditor(route) {
   editingRouteId = route ? route.id : null;
-  $('#routeEditTitle').textContent = route ? '编辑规则' : '新建规则';
+  $('#routeEditTitle').textContent = route ? chatzT('编辑规则') : chatzT('新建规则');
   $('#rtName').value = route ? route.name : '';
   $('#rtPriority').value = route ? route.priority : 50;
   $('#rtEnabled').checked = route ? route.enabled : true;
@@ -2826,14 +2840,14 @@ function ruleRowHtml(idx, row, types, t, kind) {
     valHtml = `<input type="text" value="${escapeHtml(String(v))}" placeholder="${t.type === 'tags' ? 'urgent,alert' : '2,3'}">`;
   } else {
     const v = row.value != null ? row.value : '';
-    valHtml = `<input type="${t.type === 'number' ? 'number' : 'text'}" value="${escapeHtml(String(v))}" placeholder="值">`;
+    valHtml = chatzT('<input type="{0}" value="{1}" placeholder="值">', [t.type === 'number' ? 'number' : 'text', escapeHtml(String(v))]);
   }
 
   return `
     <div class="rule-row">
       <select>${opts}</select>
       ${valHtml}
-      <button class="del-row" title="删除">\u2715</button>
+      <button class="del-row" title="${chatzT('删除')}">\u2715</button>
     </div>
   `;
 }
@@ -2865,7 +2879,7 @@ function parseVal(str, t) {
 
 async function saveRoute() {
   const name = $('#rtName').value.trim();
-  if (!name) { toast('名称不能为空'); return; }
+  if (!name) { toast(chatzT('名称不能为空')); return; }
 
   const conditions = {};
   for (const c of editingConditions) {
@@ -2902,8 +2916,8 @@ async function saveRoute() {
     $('#routeEditModal').classList.add('hidden');
     $('#routeModal').classList.remove('hidden');
     await loadRouteList();
-    toast('已保存');
-  } catch (e) { toast(e.message || '保存失败'); }
+    toast(chatzT('已保存'));
+  } catch (e) { toast(e.message || chatzT('保存失败')); }
 }
 
 // ============ 规则模板 ============
@@ -2926,7 +2940,7 @@ async function openTemplateModal() {
       item.onclick = () => applyTemplate(tpl);
     });
   } catch (e) {
-    toast(e.message || '加载模板失败');
+    toast(e.message || chatzT('加载模板失败'));
   }
 }
 
@@ -2942,7 +2956,7 @@ function applyTemplate(tpl) {
     editingActions.push({ key: a.type, value: a.value });
   }
 
-  $('#routeEditTitle').textContent = '从模板创建：' + tpl.name;
+  $('#routeEditTitle').textContent = chatzT('从模板创建：') + tpl.name;
   $('#rtName').value = tpl.name;
   $('#rtPriority').value = tpl.priority;
   $('#rtEnabled').checked = true;
@@ -2974,7 +2988,7 @@ async function loadAppManageList() {
 
     const el = $('#appManageList');
     if (apps.length === 0) {
-      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">还没有应用</div>';
+      el.innerHTML = chatzT('<div style="text-align:center;color:var(--text-muted);padding:20px;">还没有应用</div>');
       return;
     }
 
@@ -2988,7 +3002,7 @@ async function loadAppManageList() {
         : ICON_APP;
 
       const isDefault = a.id === 1;
-      const chName = state.channels.find(c => c.id === a.channelId)?.name || '默认频道';
+      const chName = state.channels.find(c => c.id === a.channelId)?.name || chatzT('默认频道');
 
       return `
         <div class="app-manage-item" data-id="${a.id}">
@@ -2997,10 +3011,10 @@ async function loadAppManageList() {
             <div class="app-manage-info">
               <div class="app-manage-name">
                 ${escapeHtml(a.name)}
-                ${isDefault ? '<span class="tag-default">默认</span>' : ''}
+                ${isDefault ? chatzT('<span class="tag-default">默认</span>') : ''}
               </div>
               <div class="app-manage-desc">
-                ${escapeHtml(a.description || '无描述')} · 发到 ${escapeHtml(chName)}
+                ${escapeHtml(a.description || chatzT('无描述'))} ${chatzT('· 发到')} ${escapeHtml(chName)}
               </div>
             </div>
           </div>
@@ -3008,13 +3022,13 @@ async function loadAppManageList() {
             <div class="app-manage-label">Webhook URL</div>
             <div class="app-manage-url">
               <code title="${escapeHtml(webhookUrl)}">${escapeHtml(webhookUrl)}</code>
-              <button class="copy-webhook" title="复制">${ICON_COPY}</button>
+              <button class="copy-webhook" title="${chatzT('复制')}">${ICON_COPY}</button>
             </div>
           </div>
           <div class="app-manage-actions">
-            <button class="app-edit">编辑</button>
-            <button class="app-upload-icon">换图标</button>
-            ${!isDefault ? '<button class="app-delete danger">删除</button>' : ''}
+            <button class="app-edit">${chatzT('编辑')}</button>
+            <button class="app-upload-icon">${chatzT('换图标')}</button>
+            ${!isDefault ? chatzT('<button class="app-delete danger">删除</button>') : ''}
           </div>
         </div>
       `;
@@ -3025,9 +3039,9 @@ async function loadAppManageList() {
       const a = apps.find(x => x.id === id);
 
       item.querySelector('.copy-webhook').onclick = () => {
-        if (!a.token) { toast('这个应用没有 Token，无法复制'); return; }
+        if (!a.token) { toast(chatzT('这个应用没有 Token，无法复制')); return; }
         const url = `${location.origin}/hook/${a.token}`;
-        navigator.clipboard.writeText(url).then(() => toast('已复制 Webhook URL'));
+        navigator.clipboard.writeText(url).then(() => toast(chatzT('已复制 Webhook URL')));
       };
 
       item.querySelector('.app-edit').onclick = () => openAppEditor(a);
@@ -3048,12 +3062,12 @@ async function loadAppManageList() {
               },
               body: file,
             });
-            if (!res.ok) throw new Error('上传失败');
+            if (!res.ok) throw new Error(chatzT('上传失败'));
             await loadAppManageList();
             await loadApps();
-            toast('图标已更新');
+            toast(chatzT('图标已更新'));
           } catch (e) {
-            toast(e.message || '上传失败');
+            toast(e.message || chatzT('上传失败'));
           }
         };
         input.click();
@@ -3065,13 +3079,13 @@ async function loadAppManageList() {
       }
     });
   } catch (e) {
-    toast(e.message || '加载失败');
+    toast(e.message || chatzT('加载失败'));
   }
 }
 
 function openAppEditor(app) {
   editingAppId = app ? app.id : null;
-  $('#appEditTitle').textContent = app ? '编辑应用' : '新建应用';
+  $('#appEditTitle').textContent = app ? chatzT('编辑应用') : chatzT('新建应用');
   $('#appName').value = app ? app.name : '';
   $('#appDesc').value = app ? (app.description || '') : '';
   $('#appIconFile').value = '';
@@ -3093,7 +3107,7 @@ function openAppEditor(app) {
 
 async function saveApp() {
   const name = $('#appName').value.trim();
-  if (!name) { toast('名称不能为空'); return; }
+  if (!name) { toast(chatzT('名称不能为空')); return; }
 
   const description = $('#appDesc').value.trim();
   const channel_id = parseInt($('#appChannel').value, 10);
@@ -3135,22 +3149,22 @@ async function saveApp() {
     $('#appManageModal').classList.remove('hidden');
     await loadAppManageList();
     await loadApps();
-    toast(editingAppId ? '已保存' : '已创建');
+    toast(editingAppId ? chatzT('已保存') : chatzT('已创建'));
   } catch (e) {
-    toast(e.message || '保存失败');
+    toast(e.message || chatzT('保存失败'));
   }
 }
 
 async function deleteApp(id, name) {
-  if (!confirm(`删除应用「${name}」及其所有消息？`)) return;
+  if (!confirm(chatzT('删除应用「{0}」及其所有消息？', [name]))) return;
   try {
     const r = await api(`/application/${id}`, { method: 'DELETE' });
     await loadAppManageList();
     await loadApps();
     await loadMessages();
-    toast(`已删除（连带 ${r.deletedMessages || 0} 条消息）`);
+    toast(chatzT('已删除（连带 {0} 条消息）', [r.deletedMessages || 0]));
   } catch (e) {
-    toast(e.message || '删除失败');
+    toast(e.message || chatzT('删除失败'));
   }
 }
 
@@ -3332,9 +3346,9 @@ async function saveUserName() {
 
     updateUserMini();
     updateAvatarDisplay(state.currentUser.avatar, newName.charAt(0).toUpperCase());
-    toast('昵称已更新');
+    toast(chatzT('昵称已更新'));
   } catch (e) {
-    toast(e.message || '保存失败');
+    toast(e.message || chatzT('保存失败'));
     cancelEditUserName();
   }
 }
@@ -3348,8 +3362,8 @@ async function changePassword() {
   const newPassword = newEl.value;
   const confirmPassword = confirmEl ? confirmEl.value : newPassword;
 
-  if (newPassword.length < 6) { toast('新密码至少 6 位'); return; }
-  if (newPassword !== confirmPassword) { toast('两次输入的新密码不一致'); return; }
+  if (newPassword.length < 6) { toast(chatzT('新密码至少 6 位')); return; }
+  if (newPassword !== confirmPassword) { toast(chatzT('两次输入的新密码不一致')); return; }
 
   try {
     const res = await api('/user/password', {
@@ -3365,9 +3379,9 @@ async function changePassword() {
     if (revokeEl) revokeEl.checked = false;
 
     const n = res.revokedDevices || 0;
-    toast(n > 0 ? `密码已更新，${n} 台设备已下线` : '密码已更新');
+    toast(n > 0 ? chatzT('密码已更新，{0} 台设备已下线', [n]) : chatzT('密码已更新'));
   } catch (e) {
-    toast(e.message || '修改失败');
+    toast(e.message || chatzT('修改失败'));
   }
 }
 
@@ -3385,11 +3399,11 @@ async function saveUsername() {
 
   // 前端先做一遍同样的校验，省一次往返 —— 后端仍会再校验一次，这里只是体验优化
   if (username.length < 2 || username.length > 32) {
-    toast('用户名长度需要 2-32 个字符');
+    toast(chatzT('用户名长度需要 2-32 个字符'));
     return;
   }
   if (!/^[a-zA-Z0-9_\-\.]+$/.test(username)) {
-    toast('用户名只能包含字母、数字和 _ - .');
+    toast(chatzT('用户名只能包含字母、数字和 _ - .'));
     return;
   }
 
@@ -3413,12 +3427,12 @@ async function saveUsername() {
       const nameEl = document.getElementById('userName');
       const subEl = document.getElementById('userSub');
       if (nameEl) nameEl.textContent = name;
-      if (subEl) subEl.textContent = '@' + u.username + (u.isAdmin ? ' · 管理员' : '');
+      if (subEl) subEl.textContent = '@' + u.username + (u.isAdmin ? chatzT(' · 管理员') : '');
     }
 
-    toast('用户名已更新');
+    toast(chatzT('用户名已更新'));
   } catch (e) {
-    toast(e.message || '保存失败');
+    toast(e.message || chatzT('保存失败'));
   } finally {
     btn.disabled = false;
   }
@@ -3436,9 +3450,9 @@ async function saveEmail() {
       body: JSON.stringify({ email }),
     });
     if (state.currentUser) state.currentUser.email = res.user.email;
-    toast(email ? '邮箱已更新' : '邮箱已清空');
+    toast(email ? chatzT('邮箱已更新') : chatzT('邮箱已清空'));
   } catch (e) {
-    toast(e.message || '保存失败');
+    toast(e.message || chatzT('保存失败'));
   } finally {
     btn.disabled = false;
   }
@@ -3472,7 +3486,7 @@ function updateAvatarDisplay(avatarUrl, letter) {
 async function uploadUserAvatar() {
   const file = document.getElementById('userAvatarFile')?.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { toast('图片太大（限 5MB）'); return; }
+  if (file.size > 5 * 1024 * 1024) { toast(chatzT('图片太大（限 5MB）')); return; }
 
   try {
     const res = await fetch('/user/avatar', {
@@ -3485,7 +3499,7 @@ async function uploadUserAvatar() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || '上传失败');
+      throw new Error(j.error || chatzT('上传失败'));
     }
     const data = await res.json();
 
@@ -3499,27 +3513,27 @@ async function uploadUserAvatar() {
     if (inp) inp.value = '';
     const nameEl = document.getElementById('userAvatarFile-name');
     if (nameEl) {
-      nameEl.textContent = '未选择';
+      nameEl.textContent = chatzT('未选择');
       nameEl.classList.remove('has-file');
     }
 
-    toast('头像已更新');
+    toast(chatzT('头像已更新'));
   } catch (e) {
-    toast(e.message || '上传失败');
+    toast(e.message || chatzT('上传失败'));
   }
 }
 
 async function removeUserAvatar() {
-  if (!confirm('移除头像？')) return;
+  if (!confirm(chatzT('移除头像？'))) return;
   try {
     await api('/user/avatar', { method: 'DELETE' });
     if (state.currentUser) state.currentUser.avatar = null;
     const name = state.currentUser?.displayName || state.currentUser?.username || '?';
     updateAvatarDisplay(null, name.charAt(0).toUpperCase());
     updateUserMini();
-    toast('头像已移除');
+    toast(chatzT('头像已移除'));
   } catch (e) {
-    toast(e.message || '操作失败');
+    toast(e.message || chatzT('操作失败'));
   }
 }
 
@@ -3600,7 +3614,7 @@ function extractDominantColor(url) {
           acc.light += l;
         }
 
-        if (buckets.size === 0) { reject(new Error('这张图没有明显的彩色像素')); return; }
+        if (buckets.size === 0) { reject(new Error(chatzT('这张图没有明显的彩色像素'))); return; }
 
         let best = null, bestKey = 0;
         for (const [k, acc] of buckets) {
@@ -3613,7 +3627,7 @@ function extractDominantColor(url) {
         });
       } catch (e) { reject(e); }
     };
-    img.onerror = () => reject(new Error('背景图加载失败'));
+    img.onerror = () => reject(new Error(chatzT('背景图加载失败')));
     img.src = url;
   });
 }
@@ -3685,7 +3699,7 @@ async function applyAccentFromBackground(url) {
     setAccentVars(palette);
     try { localStorage.setItem(cacheKey, JSON.stringify(palette)); } catch {}
   } catch (e) {
-    console.warn('[主题色] 取色失败，沿用默认色：', e.message);
+    console.warn(chatzT('[主题色] 取色失败，沿用默认色：'), e.message);
     clearAccentVars();
   } finally {
     if (accentPendingKey === cacheKey) accentPendingKey = null;
@@ -3714,15 +3728,15 @@ async function loadBackgroundStatus() {
     const s = await api('/background');
     const el = $('#bgStatus');
     if (s.enabled) {
-      el.textContent = '已设置 · ' + new Date(s.uploadedAt).toLocaleString();
+      el.textContent = chatzT('已设置 · ') + new Date(s.uploadedAt).toLocaleString();
       applyBackground(s.url);
     } else {
-      el.textContent = '未设置（使用默认光斑背景）';
+      el.textContent = chatzT('未设置（使用默认光斑背景）');
       applyBackground(null);
     }
   } catch {
     const el = $('#bgStatus');
-    if (el) el.textContent = '加载失败';
+    if (el) el.textContent = chatzT('加载失败');
   }
 }
 
@@ -3778,8 +3792,8 @@ function applyBackground(url) {
 
 async function uploadBackground() {
   const file = $('#bgFile')?.files[0];
-  if (!file) { toast('请先选择图片'); return; }
-  if (file.size > 8 * 1024 * 1024) { toast('图片太大（限 8MB）'); return; }
+  if (!file) { toast(chatzT('请先选择图片')); return; }
+  if (file.size > 8 * 1024 * 1024) { toast(chatzT('图片太大（限 8MB）')); return; }
 
   try {
     const res = await fetch('/background', {
@@ -3792,27 +3806,27 @@ async function uploadBackground() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || '上传失败');
+      throw new Error(j.error || chatzT('上传失败'));
     }
     const data = await res.json();
     $('#bgFile').value = '';
     applyBackground(data.url);
     await loadBackgroundStatus();
-    toast('背景已更新');
+    toast(chatzT('背景已更新'));
   } catch (e) {
-    toast(e.message || '上传失败');
+    toast(e.message || chatzT('上传失败'));
   }
 }
 
 async function deleteBackground() {
-  if (!confirm('移除背景图？')) return;
+  if (!confirm(chatzT('移除背景图？'))) return;
   try {
     await api('/background', { method: 'DELETE' });
     applyBackground(null);
     await loadBackgroundStatus();
-    toast('背景已移除');
+    toast(chatzT('背景已移除'));
   } catch {
-    toast('操作失败');
+    toast(chatzT('操作失败'));
   }
 }
 
@@ -3877,7 +3891,7 @@ function bindImageBottomToggle() {
   el.checked = imageBottomEnabled();
   el.addEventListener('change', () => {
     localStorage.setItem(IMAGE_BOTTOM_KEY, el.checked ? '1' : '0');
-    toast(el.checked ? '已开启图片置底' : '已关闭图片置底');
+    toast(el.checked ? chatzT('已开启图片置底') : chatzT('已关闭图片置底'));
     renderMessages();
   });
 }
@@ -3892,7 +3906,7 @@ function bindFileInput(id) {
   input.addEventListener('change', () => {
     const file = input.files[0];
     if (nameEl) {
-      nameEl.textContent = file ? file.name : '未选择';
+      nameEl.textContent = file ? file.name : chatzT('未选择');
       nameEl.classList.toggle('has-file', !!file);
     }
   });
@@ -4043,5 +4057,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (urlToken) { showReset(urlToken); return; }
     // 全新安装要先走首次引导，其它情况回登录页
     checkSetupOrLogin();
+  }
+});
+
+// 切语言后重画：i18n.js 只负责静态 HTML 与属性；侧栏 / 消息列表 / 弹窗内容
+// 是 JS 拼出来的，得重新渲染才会跟着变。
+window.addEventListener('chatz:langchange', () => {
+  const rerender = [
+    'renderChannels', 'renderTagBanner', 'renderMessages',
+    'updateUserMini', 'updateEmptyState', 'refreshUserMgmtVisibility'
+  ];
+  for (const name of rerender) {
+    const fn = window[name];
+    if (typeof fn === 'function') {
+      try { fn(); } catch (e) { /* 单个画失败不该连累其它 */ }
+    }
   }
 });
