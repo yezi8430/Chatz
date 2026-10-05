@@ -190,25 +190,6 @@
   </div>
 </div>
 
-<!-- 查看主密钥：二次验密码。
-     主密钥是全局超管凭据，抄走之后连改密码都作废不了它，
-     所以不能像别的设备 Token 那样点一下就复制。 -->
-<div id="revealMasterModal" class="modal hidden">
-  <div class="modal-content">
-    <div class="modal-header"><h3>查看主密钥</h3><button class="icon-btn close-modal">&#x2715;</button></div>
-    <div class="modal-body">
-      <p class="reveal-hint">主密钥等同于超管身份，复制后请妥善保管。请输入当前登录账号的密码以继续。</p>
-      <label>当前密码</label>
-      <input id="revealPassword" type="password" autocomplete="current-password" placeholder="登录密码">
-      <p id="revealError" class="reveal-error" hidden></p>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-secondary close-modal">取消</button>
-      <button id="revealSubmit" class="btn-primary">验证并复制</button>
-    </div>
-  </div>
-</div>
-
 <div id="channelModal" class="modal hidden">
   <div class="modal-content">
     <div class="modal-header"><h3>新建频道</h3><button class="icon-btn close-modal">&#x2715;</button></div>
@@ -606,6 +587,30 @@
     <div class="modal-footer">
       <button class="btn-secondary close-modal">取消</button>
       <button id="appSaveBtn" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 查看主密钥：二次验密码。
+     主密钥是全局超管凭据，抄走之后连改密码都作废不了它，
+     所以不能像别的设备 Token 那样点一下就复制。
+
+     ⚠️ 这个弹窗**必须排在最后**：它是从 #userModal（账户面板）里点开的，
+     而 #userModal 本身也是一个 .modal（z-index:100）。同为 100 时，
+     DOM 里靠后的盖住靠前的 —— 放在 #userModal 之前就会被账户面板压住。
+     除了排最后，CSS 里也单独抬了一层（#revealMasterModal { z-index: 160 }）双保险。 -->
+<div id="revealMasterModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3>查看主密钥</h3><button class="icon-btn close-modal">&#x2715;</button></div>
+    <div class="modal-body">
+      <p class="reveal-hint">主密钥等同于超管身份，复制后请妥善保管。请输入当前登录账号的密码以继续。</p>
+      <label>当前密码</label>
+      <input id="revealPassword" type="password" autocomplete="current-password" placeholder="登录密码">
+      <p id="revealError" class="reveal-error" hidden></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary close-modal">取消</button>
+      <button id="revealSubmit" class="btn-primary">验证并复制</button>
     </div>
   </div>
 </div>
