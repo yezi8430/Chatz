@@ -75,7 +75,10 @@ curl -o docker-compose.yml \
 |---|---|
 | 只有 `sha-xxxx` 没有版本号 | 没打 tag，或 tag 名不是 `v1.2.3` 格式 |
 | Actions 报 403 | job 缺 `permissions: packages: write` |
-| 构建十几分钟然后超时 | 别开 arm64；better-sqlite3 走 QEMU 编译会很慢 |
+| `must be lowercase` | GHCR 镜像名必须全小写。仓库叫 `Chatz`（大写）⇒ `github.repository` 带大写，而 `build-push-action` 的 `outputs: type=image,name=...` **不像 metadata-action 那样自动转小写**。工作流里已加 `Normalize image name` 步骤，别再绕过它直接拼名字 |
+| `unknown/unknown` 混进 manifest | buildx 默认生成 provenance attestation，`imagetools create` 会把它当成一个平台。两个 build 步骤都已加 `provenance: false` |
+| 整个 run 卡在 Queued 十几分钟然后被取消 | **先看 <https://www.githubstatus.com>**。GitHub 故障期间 x86 runner 会排队不到（ARM runner 反而正常）；与代码无关，等恢复后 Re-run 即可。注意排队阶段别点 Cancel —— 取消后 amd64 只推了 digest 没打 tag，`latest` 不会更新 |
+| 构建十几分钟然后超时 | 旧的单 job `platforms: linux/amd64,linux/arm64` 写法（arm64 走 QEMU 模拟）才会这样。现在是 3 个 job：amd64 与 arm64 **各自原生 runner 并行**，再用 `imagetools create` 合成，全流程约 40 秒 |
 | 容器启动了但代码是旧的 | 镜像部署的；`docker compose restart` 没用，必须 `pull` + `up -d` |
 | Dockerfile 改了但没生效 | 同上，`pull` 拿的是新镜像，本地没重新 build |
 | shell 脚本在容器里报 `^M` | `.gitattributes` 已强制 LF；新增脚本别用 Windows 换行 |

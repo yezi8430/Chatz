@@ -76,7 +76,10 @@ To change it, edit that `image:` line and pull again.
 |---|---|
 | Only `sha-xxxx`, no version numbers | no tag pushed, or the tag is not in `v1.2.3` form |
 | Actions returns 403 | the job is missing `permissions: packages: write` |
-| Build runs 10+ minutes then times out | do not enable arm64; building better-sqlite3 under QEMU is very slow |
+| `must be lowercase` | A GHCR image name must be all lowercase. The repo is `Chatz`, so `github.repository` carries a capital C — and `build-push-action`'s `outputs: type=image,name=...` does **not** lowercase it the way `metadata-action` does. A `Normalize image name` step now handles this; do not bypass it by building the name inline |
+| `unknown/unknown` appears in the manifest | buildx emits a provenance attestation by default and `imagetools create` counts it as a platform. Both build steps set `provenance: false` |
+| The whole run sits in Queued for 10+ minutes, then gets cancelled | **Check <https://www.githubstatus.com> first.** During a GitHub incident x86 runners can fail to be allocated (ARM runners keep working); nothing to do with the code — re-run once it recovers. Do not hit Cancel while queued: amd64 will have pushed a digest with no tag, so `latest` will not be updated |
+| Build runs 10+ minutes then times out | That only happens with the old single-job `platforms: linux/amd64,linux/arm64` form (arm64 under QEMU). Now there are 3 jobs: amd64 and arm64 build **in parallel on their own native runners**, then `imagetools create` merges them — roughly 40 seconds end to end |
 | Container restarted but code is old | it is image-deployed; `docker compose restart` does nothing, you need `pull` + `up -d` |
 | Dockerfile changed but nothing happened | same as above; `pull` fetches the new image, nothing is built locally |
 | Shell script fails with `^M` in the container | `.gitattributes` forces LF; never save new scripts with Windows line endings |
