@@ -166,9 +166,10 @@ crowded you out (that bug was fixed on 2026-09-29).
 | `POST /auth/reset-password` | per IP | 20 / 10 min |
 | `PATCH /user/password` | per IP | 10 / 10 min |
 | `PATCH /user/username` | per IP | 10 / 10 min |
+| `PUT /user/settings` | per IP | 120 / 60 s |
 | WebSocket connections | global / per user | 1000 total / 10 per user |
 
-Those 18 rows correspond to **18 `rateLimit({ name })` call sites** (16 in `src/*.js` plus 2
+Those 19 rows correspond to **19 `rateLimit({ name })` call sites** (17 in `src/*.js` plus 2
 login-specific ones inside `rateLimit.js`), checked one by one. The last row is not this mechanism
 at all — it is the connection cap in `ws.js`.
 
@@ -670,6 +671,71 @@ connections (client and web UI both sync immediately, no manual refresh).
 ```
 
 Also broadcasts `userUpdated`.
+
+### `GET /user/settings` logged in
+
+Read the current user's **UI preferences**. Returns an empty object `{}` when nothing
+has been set yet — clients then fall back to their own defaults.
+
+```json
+{"settings": {"theme": "dark", "bgBlur": 12, "bgDim": 35, "accentFromBg": true, "imageBottom": false, "lang": "zh"}}
+```
+
+### `PUT /user/settings` logged in
+
+Write UI preferences. **Send only the keys you want to change** (the server merges;
+omitted keys keep their current value). Returns the full merged settings.
+
+```json
+// request: change blur only
+{"bgBlur": 12}
+
+// response
+{"ok": true, "settings": {"theme": "dark", "bgBlur": 12, "bgDim": 35, ...}}
+```
+
+| Key | Type | Values | Meaning |
+|---|---|---|---|
+| `theme` | string | `light` / `dark` | light / dark theme |
+| `lang` | string | `zh` / `en` | **UI** language (see note below) |
+| `bgBlur` | integer | 0 – 40 | background blur (px) |
+| `bgDim` | integer | 0 – 100 | background dim (%) |
+| `accentFromBg` | boolean | | extract the accent colour from the background image |
+| `imageBottom` | boolean | | put the message image at the bottom of the card |
+
+- Only the keys listed above are accepted; an unknown key → `400 未知的设置项：xxx`
+- Wrong type or out of range (e.g. `bgBlur: 999`, `theme: "blue"`) → `400 设置项取值不合法：xxx`
+- Stored as one JSON column `users.settings`, tied to the account:
+  **sign in on another device, fetch once, and everything matches**
+- 🔴 Deliberately **no audit entry and no `userUpdated` broadcast**: one slider drag
+  would produce one audit row and flood the log; broadcasting would make another
+  device that is currently dragging the same slider get overwritten and jitter.
+  "Fetch once on open" is enough for cross-device consistency.
+
+```bash
+curl -X PUT http://<host>:20010/user/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"bgBlur": 12}'
+```
+
+### `DELETE /user/settings` logged in
+
+Clear every preference; clients fall back to their own defaults.
+
+```json
+{"ok": true, "settings": {}}
+```
+
+> ⚠️ **`settings.lang` and `meta.lang` are different things** — do not confuse them:
+>
+> | | What it is | Who can change it |
+> |---|---|---|
+> | `users.settings.lang` (this endpoint) | that person's own **UI** language | every user, for themselves |
+> | `meta.lang` (`PUT /config/lang`) | the server **log** language, one value per install | super admins only |
+>
+> Someone switching their own phone to English does not mean the container logs
+> should switch to English. The two never overwrite each other.
 
 ### `PATCH /user/profile` logged in
 

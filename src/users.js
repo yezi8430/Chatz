@@ -930,6 +930,125 @@ router.patch('/user/email', requireAuth, (req, res) => {
 });
 
 // ============================================================
+// 界面偏好（跨设备同步）
+// ============================================================
+//
+// 为什么要有这一对接口：
+//   背景图本身早就存在服务端（/background，按 user_id 分目录），
+//   但「这张图渲染成什么样」—— 模糊多少、压暗多少、主题色取不取自它、
+//   明暗主题、界面语言 —— 原本全在各端的 localStorage / SharedPreferences 里。
+//   于是同一张背景图，电脑上调过参数、手机上是出厂默认值，两边观感对不上。
+//   把渲染参数也搬到服务端，换设备打开时拉一次就一致了。
+//
+// ⚠️ 这是**单用户**偏好，和 meta 表里的整机配置是两码事：
+//      meta.lang          = 服务端日志语言（超管才能改）
+//      users.settings.lang = 这个人自己的界面语言（人人可改）
+//   两者互不覆盖：某人在手机上把界面切成英文，不代表容器日志也要跟着变英文。
+//
+// ⚠️ 只认 SETTINGS_SPEC 里登记过的键，且逐个校验类型/范围。不校验的话，
+//    这接口就成了一个能塞任意内容的 JSON 存储桶，以后没人敢动它。
+const SETTINGS_SPEC = {
+  theme:        { kind: 'enum', values: ['light', 'dark'], def: 'light' },
+  lang:         { kind: 'enum', values: ['zh', 'en'] },
+  bgBlur:       { kind: 'int', min: 0, max: 40 },
+  bgDim:        { kind: 'int', min: 0, max: 100 },
+  accentFromBg: { kind: 'bool' },
+  imageBottom:  { kind: 'bool' },
+};
+
+/** 单键校验：不合格返回 undefined（调用方据此丢弃），合格返回归一化后的值 */
+function coerceSetting(key, v) {
+  const spec = SETTINGS_SPEC[key];
+  if (!spec) return undefined;          // 没登记过的键一律不收
+  if (v === undefined || v === null) return undefined;
+
+  if (spec.kind === 'enum') {
+    return spec.values.includes(v) ? v : undefined;
+  }
+  if (spec.kind === 'bool') {
+    if (v === true || v === 1 || v === '1' || v === 'true') return true;
+    if (v === false || v === 0 || v === '0' || v === 'false') return false;
+    return undefined;
+  }
+  if (spec.kind === 'int') {
+    // 滑块 / 老客户端可能给字符串，宽松收一下；但必须是整数且在范围内
+    const n = (typeof v === 'number') ? v
+            : (typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
+    if (!Number.isInteger(n)) return undefined;
+    if (n < spec.min || n > spec.max) return undefined;
+    return n;
+  }
+  return undefined;
+}
+
+/** 只保留认识的、合法的键；没存过就返回 {}（前端据此回落到本地默认值） */
+function normalizeSettings(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const key of Object.keys(SETTINGS_SPEC)) {
+    const v = coerceSetting(key, raw[key]);
+    if (v !== undefined) out[key] = v;
+  }
+  return out;
+}
+
+function readSettings(userId) {
+  const row = db.prepare('SELECT settings FROM users WHERE id = ?').get(userId);
+  if (!row || !row.settings) return {};
+  try { return normalizeSettings(JSON.parse(row.settings)); }
+  catch { return {}; }   // 手改坏了 / 半截写入：当没设置过，不要让登录都登不进去
+}
+
+router.get('/user/settings', requireAuth, (req, res) => {
+  res.json({ settings: readSettings(req.user.id) });
+});
+
+// PUT 是**合并**而不是整份覆盖：前端改一个滑块就只推那一个键，
+// 省得每个调用点都得先把整份设置读出来拼好再发。
+router.put('/user/settings',
+  requireAuth,
+  rateLimit({ windowMs: 60000, max: 120, name: 'user.settings', message: '操作过于频繁，请稍后再试' }),
+  (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ error: '请求体必须是 JSON 对象' });
+    }
+
+    const unknown = Object.keys(body).filter(k => !SETTINGS_SPEC[k]);
+    if (unknown.length) {
+      return res.status(400).json({ error: '未知的设置项：' + unknown.slice(0, 5).join('、') });
+    }
+
+    const merged = readSettings(req.user.id);
+    const bad = [];
+    for (const k of Object.keys(body)) {
+      const v = coerceSetting(k, body[k]);
+      if (v === undefined) bad.push(k);
+      else merged[k] = v;
+    }
+    if (bad.length) {
+      return res.status(400).json({ error: '设置项取值不合法：' + bad.join('、') });
+    }
+
+    db.prepare('UPDATE users SET settings = ? WHERE id = ?')
+      .run(JSON.stringify(merged), req.user.id);
+
+    // 🔴 故意不写审计、也不 notifyUserUpdated：
+    //    · 拖一次滑块就一条审计，日志会被这种毫无调查价值的记录灌满；
+    //    · notifyUserUpdated 会让同账号的其它在线端立刻重拉 —— 而那一端
+    //      此刻可能正在拖同一个滑块，服务端的值会把它手上的值盖回去，来回抖。
+    //      跨设备一致性靠「打开时拉一次」就够了，实时同步等真需要再加。
+    res.json({ ok: true, settings: merged });
+  }
+);
+
+// 清空（前端「恢复默认」用）
+router.delete('/user/settings', requireAuth, (req, res) => {
+  db.prepare('UPDATE users SET settings = NULL WHERE id = ?').run(req.user.id);
+  res.json({ ok: true, settings: {} });
+});
+
+// ============================================================
 // 修改用户名
 // ============================================================
 // 用户名全局唯一（migrate 里的 `username TEXT NOT NULL UNIQUE` 是最后一道兜底）。

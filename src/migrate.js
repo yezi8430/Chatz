@@ -280,6 +280,21 @@ function migrate(db) {
     // 用部分索引只约束「非空」的那些行。
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL');
 
+    // ── 用户界面偏好（明暗 / 语言 / 背景模糊与暗度 / 图片置底 …）──
+    //
+    // 为什么是**一列 JSON** 而不是每样一个列：
+    //   这些是纯渲染参数，谁都不参与 SQL 查询，也不会用来做筛选排序。
+    //   每加一项就 ALTER 一次表，迁移记录会被一堆无关列灌满。
+    //   存成 JSON 后，新增一项偏好只改 users.js 里的 SETTINGS_SPEC 即可。
+    //
+    // ⚠️ 存的是**单用户**偏好，不是整机配置 —— 整机配置在 meta 表
+    //   （比如 meta.lang 是「服务端日志语言」，超管才有权限改）。
+    //   两者互不覆盖：用户在自己手机上把界面切成英文，不代表容器日志也要变英文。
+    if (!columnExists(db, 'users', 'settings')) {
+      db.exec('ALTER TABLE users ADD COLUMN settings TEXT');
+      note('users.settings');
+    }
+
     // ── 两级管理员 ──
     //   role 0 = 普通用户
     //   role 1 = 管理员（只能管应用和路由规则，**看不到**未订阅的私有频道）

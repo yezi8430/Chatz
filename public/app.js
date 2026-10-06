@@ -144,8 +144,216 @@ async function syncServerLang(lang) {
 
 // 切语言时同步一次（i18n.js 的 setLang 会派发这个事件）
 window.addEventListener('chatz:langchange', (e) => {
-  syncServerLang(e.detail && e.detail.lang ? e.detail.lang : currentLang());
+  const lang = (e.detail && e.detail.lang) ? e.detail.lang : currentLang();
+  syncServerLang(lang);               // 服务端**日志**语言（超管权限，失败静默）
+  setSetting('lang', lang);           // 个人界面语言（跨设备同步）
 });
+
+// ============ 界面偏好：本地缓存 + 服务端同步 ============
+//
+// 背景**图**本来就在服务端（/background，按 user_id 分目录），但「这张图渲染成
+// 什么样」—— 模糊多少、压暗多少、主题色取不取自它、明暗主题、界面语言 ——
+// 原先只落在 localStorage 里。localStorage 是「每浏览器 × 每设备」一份，
+// 于是电脑上调过的参数到手机上还是出厂默认值，同一张图两边观感对不上。
+//
+// 现在统一以服务端为准：
+//   · 登录后 GET /user/settings，服务端有值就覆盖本地并重新应用；
+//   · 改动时 PUT /user/settings，只推改动的那个键；
+//   · 同步失败一律静默 —— 偏好不是关键数据，不能因为同步不了就连本地也改不动。
+//   · localStorage 仍在写，但降级成**首屏缓存**：boot.js 在脚本跑起来之前
+//     就靠它把背景和明暗铺好，避免白闪。
+//
+// ⚠️ lang 同步的只是「界面语言」。服务端**日志**语言是另一回事（meta.lang，
+//    超管才有权限改），两者互不覆盖 —— syncServerLang() 那条链路照旧。
+const SETTINGS_FIELDS = {
+  theme:        { ls: 'chatz_theme',          def: 'light' },
+  lang:         { ls: 'chatz_lang',           def: null    },  // null = 没设过，跟随浏览器
+  bgBlur:       { ls: 'chatz_bg_blur',        def: 0       },
+  bgDim:        { ls: 'chatz_bg_dim',         def: 20      },
+  accentFromBg: { ls: 'chatz_accent_from_bg', def: true    },
+  imageBottom:  { ls: 'chatz_image_bottom',   def: false   },
+};
+
+// 当前生效的设置（内存里的唯一真值）。首次访问时由本地缓存灌入，
+// 登录后被服务端的值覆盖。任何读取偏好都走 getSettings()，别再直接读 localStorage。
+let curSettings = null;
+
+function lsReadBool(key, def) {
+  const v = localStorage.getItem(key);
+  if (v === null || v === '') return def;
+  return v === '1' || v === 'true';
+}
+
+function lsReadInt(key, def) {
+  const v = parseInt(localStorage.getItem(key), 10);
+  return Number.isFinite(v) ? v : def;
+}
+
+function readLocalSettings() {
+  const lang = localStorage.getItem(SETTINGS_FIELDS.lang.ls);
+  return {
+    theme: localStorage.getItem(SETTINGS_FIELDS.theme.ls) === 'dark' ? 'dark' : 'light',
+    lang: (lang === 'zh' || lang === 'en') ? lang : null,
+    bgBlur: lsReadInt(SETTINGS_FIELDS.bgBlur.ls, SETTINGS_FIELDS.bgBlur.def),
+    bgDim: lsReadInt(SETTINGS_FIELDS.bgDim.ls, SETTINGS_FIELDS.bgDim.def),
+    accentFromBg: lsReadBool(SETTINGS_FIELDS.accentFromBg.ls, SETTINGS_FIELDS.accentFromBg.def),
+    imageBottom: lsReadBool(SETTINGS_FIELDS.imageBottom.ls, SETTINGS_FIELDS.imageBottom.def),
+  };
+}
+
+/**
+ * 本地 localStorage 里**确实存在**的偏好键
+ *
+ * 用来判断「这一项用户是不是真的动过」。写设置之前（也就是这项功能上线之前）
+ * 各端只有用户改过的项才会落到 localStorage，没动过的键根本不存在。
+ * 区分这个，是为了首次迁移只把用户调过的项补到服务端 —— 见 loadUserSettings。
+ */
+function readLocalPresence() {
+  const out = {};
+  for (const k of Object.keys(SETTINGS_FIELDS)) {
+    const v = localStorage.getItem(SETTINGS_FIELDS[k].ls);
+    if (v === null || v === '') continue;
+    if (k === 'lang' && v !== 'zh' && v !== 'en') continue;
+    out[k] = true;
+  }
+  return out;
+}
+
+function getSettings() {
+  if (!curSettings) curSettings = readLocalSettings();
+  return curSettings;
+}
+
+function writeLocalSettings(s) {
+  try {
+    localStorage.setItem(SETTINGS_FIELDS.theme.ls, s.theme);
+    localStorage.setItem(SETTINGS_FIELDS.bgBlur.ls, String(s.bgBlur));
+    localStorage.setItem(SETTINGS_FIELDS.bgDim.ls, String(s.bgDim));
+    localStorage.setItem(SETTINGS_FIELDS.accentFromBg.ls, s.accentFromBg ? '1' : '0');
+    localStorage.setItem(SETTINGS_FIELDS.imageBottom.ls, s.imageBottom ? '1' : '0');
+    // lang 为 null 表示「没设过」—— 别写空值进去，否则会把浏览器的自动探测盖掉
+    if (s.lang) localStorage.setItem(SETTINGS_FIELDS.lang.ls, s.lang);
+  } catch {}
+}
+
+/**
+ * 把一份设置落到界面上（只管渲染，不写 localStorage、不推服务端）
+ *
+ * @param s    要应用的完整设置
+ * @param prev 变更前的值；只有**真的变了**的字段才重新应用，
+ *             免得每次登录都把 accent 重算一遍、把消息列表重渲染一遍。
+ */
+function applySettingsToUi(s, prev) {
+  const bgUrl = localStorage.getItem('chatz_bg_url');
+  const themeChanged = s.theme !== prev.theme;
+
+  if (themeChanged) {
+    state.theme = s.theme;
+    applyTheme();
+  }
+
+  // 语言：i18n 自己是唯一真值，跟它比而不是跟 prev 比 ——
+  // prev.lang 可能是 null（跟随浏览器探测出来的），比了会白跑一次 applyDom。
+  if (s.lang && s.lang !== currentLang()) {
+    try { window.chatzI18n && window.chatzI18n.setLang(s.lang, true); } catch {}
+  }
+
+  if (s.bgBlur !== prev.bgBlur || s.bgDim !== prev.bgDim) {
+    document.documentElement.style.setProperty('--bg-blur', s.bgBlur + 'px');
+    document.documentElement.style.setProperty('--bg-dim', (s.bgDim / 100).toString());
+    const be = $('#bgBlur'), de = $('#bgDim');
+    if (be) { be.value = s.bgBlur; const l = $('#bgBlurVal'); if (l) l.textContent = s.bgBlur + 'px'; }
+    if (de) { de.value = s.bgDim;  const l = $('#bgDimVal');  if (l) l.textContent = s.bgDim + '%'; }
+  }
+
+  // accent 缓存 key 带主题（暗底下得更亮才看得清），所以主题一变也要重算
+  if (s.accentFromBg !== prev.accentFromBg || themeChanged) {
+    if (s.accentFromBg) applyAccentFromBackground(bgUrl);
+    else clearAccentVars();
+  }
+
+  if (s.imageBottom !== prev.imageBottom) {
+    const el = $('#imageBottomEnabled');
+    if (el) el.checked = s.imageBottom;
+    // 置底是在渲染卡片时决定的，改完必须重画列表才看得见（见 bindImageBottomToggle）
+    if (state.messages && state.messages.length) renderMessages();
+  }
+}
+
+/** 改一项设置：立刻本地生效 + 异步推服务端 */
+function setSetting(key, value) {
+  const s = getSettings();
+  if (s[key] === value) return;         // 同值不折腾
+  const prev = { ...s };
+  s[key] = value;
+  writeLocalSettings(s);
+  applySettingsToUi(s, prev);
+  pushUserSettings({ [key]: value });
+}
+
+// 推服务端：合并 400ms 内的连续改动（拖滑块、连点主题开关）成一次请求
+let settingsPushTimer = null;
+let settingsPushQueue = {};
+
+function pushUserSettings(patch) {
+  if (!state.token) return;             // 没登录：改完留在本地，等下次登录拉上去
+  Object.assign(settingsPushQueue, patch);
+  clearTimeout(settingsPushTimer);
+  settingsPushTimer = setTimeout(flushUserSettings, 400);
+}
+
+async function flushUserSettings() {
+  const patch = settingsPushQueue;
+  settingsPushQueue = {};
+  if (!state.token || Object.keys(patch).length === 0) return;
+  try {
+    // 🔴 skipAuthLogout：同步偏好是个锦上添花的操作，不该因为一次 401
+    //    就把人踢下线（规矩见 api() 里的注释）。
+    await api('/user/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+      skipAuthLogout: true,
+    });
+  } catch {
+    // 同步失败无所谓：本地已经生效了，下次登录会再拉一次服务端的值
+  }
+}
+
+/** 登录后以服务端为准校正本地（服务端没存过的键保持本地值不动） */
+async function loadUserSettings() {
+  let remote = null;
+  try {
+    const j = await api('/user/settings', { skipAuthLogout: true });
+    remote = j && j.settings;
+  } catch { return; }
+  if (!remote || typeof remote !== 'object') return;
+
+  const prev = getSettings();
+  const merged = { ...prev };
+  let changed = false;
+  for (const k of Object.keys(SETTINGS_FIELDS)) {
+    if (remote[k] === undefined) continue;    // 服务端没存过这项：保持本地值
+    if (remote[k] !== prev[k]) changed = true;
+    merged[k] = remote[k];
+  }
+  curSettings = merged;
+
+  // 首次迁移：本地有、服务端没有的键，把本地值补上去。
+  //
+  // 为什么只补「用户真动过的」：这台设备上的**出厂默认值**不能灌进服务端 ——
+  // 否则另一台设备上用户辛辛苦苦调好的值，会被这台的默认blur=0 给盖掉。
+  // 判据就是 localStorage 里这一项存不存在（见 readLocalPresence）。
+  const present = readLocalPresence();
+  const seed = {};
+  for (const k of Object.keys(SETTINGS_FIELDS)) {
+    if (remote[k] === undefined && present[k]) seed[k] = merged[k];
+  }
+  if (Object.keys(seed).length) pushUserSettings(seed);
+
+  if (!changed) return;
+  writeLocalSettings(merged);
+  applySettingsToUi(merged, prev);
+}
 
 const ICON_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
 const ICON_SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`;
@@ -161,12 +369,7 @@ function applyTheme() {
 }
 
 function toggleTheme() {
-  state.theme = state.theme === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('chatz_theme', state.theme);
-  applyTheme();
-  // 主题的明暗基准变了，accent 的亮度也要跟着换（暗底下得更亮才看得清），
-  // 所以按当前背景重算一次（缓存 key 带主题，不会重复遍历像素）
-  applyAccentFromBackground(localStorage.getItem('chatz_bg_url'));
+  setSetting('theme', state.theme === 'dark' ? 'light' : 'dark');
 }
 
 // ============ 登录/注册 ============
@@ -3421,6 +3624,9 @@ async function start() {
   if (cachedBg) applyBackground(cachedBg);
 
   await loadCurrentUser();
+  // 界面偏好必须在渲染消息**之前**校正：图片置底是在渲染卡片时决定的，
+  // 等列表画完再改开关，就得重画一遍（applySettingsToUi 里确实有兜底，但会闪一下）。
+  await loadUserSettings();
   await loadApps();
   await loadChannels();
   await loadUnreadCounts();
@@ -3707,10 +3913,10 @@ async function removeUserAvatar() {
 // 动态主题色（M3 的思路：从背景图里取一个 seed color 当主题色）
 // ------------------------------------------------------------
 
-const ACCENT_FROM_BG_KEY = 'chatz_accent_from_bg';
+// 键名统一登记在 SETTINGS_FIELDS 里（文件上方「界面偏好」区块），这里不再重复定义
 
 function accentFromBgEnabled() {
-  return localStorage.getItem(ACCENT_FROM_BG_KEY) !== '0';
+  return getSettings().accentFromBg;
 }
 
 function rgbToHsl(r, g, b) {
@@ -3871,8 +4077,11 @@ async function applyAccentFromBackground(url) {
 }
 
 function applyBackgroundSettings() {
-  const blur = parseInt(localStorage.getItem('chatz_bg_blur') || '0', 10);
-  const dim = parseInt(localStorage.getItem('chatz_bg_dim') || '20', 10);
+  // 从内存里的设置读，不再直接读 localStorage —— 后者已经降级成首屏缓存，
+  // 登录后真正生效的是服务端拉下来的值。
+  const s = getSettings();
+  const blur = s.bgBlur;
+  const dim = s.bgDim;
 
   document.documentElement.style.setProperty('--bg-blur', blur + 'px');
   document.documentElement.style.setProperty('--bg-dim', (dim / 100).toString());
@@ -4005,7 +4214,8 @@ function bindBackgroundSliders() {
       document.documentElement.style.setProperty('--bg-blur', v + 'px');
     });
     blurEl.addEventListener('change', () => {
-      localStorage.setItem('chatz_bg_blur', blurEl.value);
+      // input 事件只做实时预览（上面），松手才提交 —— 免得拖一次滑块推几十次请求
+      setSetting('bgBlur', parseInt(blurEl.value, 10));
     });
   }
 
@@ -4016,7 +4226,7 @@ function bindBackgroundSliders() {
       document.documentElement.style.setProperty('--bg-dim', (v / 100).toString());
     });
     dimEl.addEventListener('change', () => {
-      localStorage.setItem('chatz_bg_dim', dimEl.value);
+      setSetting('bgDim', parseInt(dimEl.value, 10));
     });
   }
 
@@ -4030,17 +4240,15 @@ function bindAccentToggle() {
   if (!el) return;
   el.checked = accentFromBgEnabled();
   el.addEventListener('change', () => {
-    localStorage.setItem(ACCENT_FROM_BG_KEY, el.checked ? '1' : '0');
-    if (el.checked) applyAccentFromBackground(localStorage.getItem('chatz_bg_url'));
-    else clearAccentVars();
+    setSetting('accentFromBg', el.checked);   // 应用 accent / 清 accent 由 applySettingsToUi 负责
   });
 }
 
 // 图片置底 —— 与客户端的 image_as_background 同名，**默认关闭**
-const IMAGE_BOTTOM_KEY = 'chatz_image_bottom';
+// （键名见 SETTINGS_FIELDS.imageBottom）
 
 function imageBottomEnabled() {
-  return localStorage.getItem(IMAGE_BOTTOM_KEY) === '1';
+  return getSettings().imageBottom;
 }
 
 /**
@@ -4054,9 +4262,9 @@ function bindImageBottomToggle() {
   if (!el) return;
   el.checked = imageBottomEnabled();
   el.addEventListener('change', () => {
-    localStorage.setItem(IMAGE_BOTTOM_KEY, el.checked ? '1' : '0');
+    // 重渲染由 applySettingsToUi 触发（置底是在渲染卡片时决定的，见上面那段说明）
+    setSetting('imageBottom', el.checked);
     toast(el.checked ? chatzT('已开启图片置底') : chatzT('已关闭图片置底'));
-    renderMessages();
   });
 }
 
@@ -4081,6 +4289,9 @@ function bindAllFileInputs() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 先把本地缓存的偏好灌进内存，后面的 applyTheme / applyBackgroundSettings
+  // 都从这份内存值读。登录后 start() 里的 loadUserSettings 会用服务端的值校正。
+  getSettings();
   applyTheme();
 
   $$('.auth-tab').forEach(t => t.onclick = () => switchAuthTab(t.dataset.tab));

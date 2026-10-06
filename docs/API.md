@@ -157,9 +157,10 @@ Token 来源：
 | `POST /auth/reset-password` | 每 IP | 20 次 / 10 分钟 |
 | `PATCH /user/password` | 每 IP | 10 次 / 10 分钟 |
 | `PATCH /user/username` | 每 IP | 10 次 / 10 分钟 |
+| `PUT /user/settings` | 每 IP | 120 次 / 60 秒 |
 | WebSocket 连接 | 全局 / 单用户 | 1000 条 / 每用户 10 条 |
 
-上面 18 行对应 **18 个 `rateLimit({ name })` 调用点**（`src/*.js` 16 个 + `rateLimit.js`
+上面 19 行对应 **19 个 `rateLimit({ name })` 调用点**（`src/*.js` 17 个 + `rateLimit.js`
 里 login 专用的 2 个），逐个核出来的；最后那行 WebSocket 不走这套机制，是 `ws.js` 里的连接数上限。
 
 （2026-09-30 补记：加 `route_test` / `channel_create` / `device_create` 三个的时候
@@ -625,6 +626,66 @@ curl -X POST http://<host>:20010/user/avatar \
 ```
 
 同样会广播 `userUpdated`。
+
+### `GET /user/settings` 登录
+
+取当前用户的**界面偏好**。没设过就返回空对象 `{}` —— 此时各端用自己的默认值。
+
+```json
+{"settings": {"theme": "dark", "bgBlur": 12, "bgDim": 35, "accentFromBg": true, "imageBottom": false, "lang": "zh"}}
+```
+
+### `PUT /user/settings` 登录
+
+写界面偏好。**只传要改的键**（服务端做合并，未传的键保持原值），返回合并后的完整设置。
+
+```json
+// 请求：只改模糊度
+{"bgBlur": 12}
+
+// 响应
+{"ok": true, "settings": {"theme": "dark", "bgBlur": 12, "bgDim": 35, ...}}
+```
+
+| 键 | 类型 | 取值 | 说明 |
+|---|---|---|---|
+| `theme` | 字符串 | `light` / `dark` | 明暗主题 |
+| `lang` | 字符串 | `zh` / `en` | **界面**语言（见下方注意事项） |
+| `bgBlur` | 整数 | 0 – 40 | 背景模糊（px） |
+| `bgDim` | 整数 | 0 – 100 | 背景压暗（%） |
+| `accentFromBg` | 布尔 | | 主题色是否从背景图里提取 |
+| `imageBottom` | 布尔 | | 消息卡片图片置底 |
+
+- 只认上表登记的键，传未知键 → `400 未知的设置项：xxx`
+- 类型或范围不合法（比如 `bgBlur: 999`、`theme: "blue"`）→ `400 设置项取值不合法：xxx`
+- 存的是 `users.settings` 一列 JSON，随账号走：**换设备登录拉一次就一致**
+- 🔴 这里**不写审计、也不广播 `userUpdated`**：拖一次滑块就一条审计会把日志灌满；
+  而广播会让同账号另一台正在拖同一个滑块的设备被服务端的值盖回去，来回抖。
+  跨设备一致性靠「打开时拉一次」就够了。
+
+```bash
+curl -X PUT http://<host>:20010/user/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"bgBlur": 12}'
+```
+
+### `DELETE /user/settings` 登录
+
+清空全部偏好，各端回落到自己的默认值。
+
+```json
+{"ok": true, "settings": {}}
+```
+
+> ⚠️ **`settings.lang` 和 `meta.lang` 是两回事**，别混：
+>
+> | | 是什么 | 谁能改 |
+> |---|---|---|
+> | `users.settings.lang`（本接口） | 这个人自己的**界面**语言 | 每个用户自己 |
+> | `meta.lang`（`PUT /config/lang`） | 服务端**日志**语言，整机一份 | 仅超级管理员 |
+>
+> 某人在自己手机上把界面切成英文，不代表容器日志也要跟着变英文 —— 两者互不覆盖。
 
 ### `PATCH /user/profile` 登录
 

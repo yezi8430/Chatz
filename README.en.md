@@ -33,6 +33,7 @@ and state stays in sync across every client in real time.
 | **Aggregation** | Messages that share channel + app + title within 5 minutes collapse into one (a single card lives at most 30 minutes so it cannot renew forever — see `AGG_MAX_LIFETIME_MS`; the parent card shows no cover image, images live in the expanded children) |
 | **Attachments** | Images / files upload to `/attachments/` and are referenced from the body or `extras`; deleting a message reclaims them |
 | **Custom background** | Each user uploads their own background image; the accent color is sampled from it |
+| **Settings follow the account** | Background blur / dim, light-dark theme, UI language and image-at-bottom are stored server-side (`GET/PUT /user/settings`), so signing in on another device fetches them once and everything matches |
 | **Built-in HTTPS** | Upload a certificate to enable WSS, hot-reload supported |
 | **Bilingual UI** | The web UI speaks Chinese and English; it follows the browser language and the sidebar "EN / 中" button switches at any time (dictionary: `public/i18n.js`) |
 | **Audit log** | Sign-in, sign-up, rule changes, message deletion and other key actions are recorded; admins can query them |

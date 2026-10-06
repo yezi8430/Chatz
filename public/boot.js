@@ -4,6 +4,21 @@
 // 加载位置固定在 <body> 开头、同步执行 —— 和原来的内联脚本时机一致：
 // 背景必须赶在首屏渲染前设好，不然会闪一下白底。
 
+// ---------- 明暗主题预置 ----------
+// 和背景同理：data-theme 要是等 app.js 的 applyTheme() 才设，深色用户会先看到
+// 一版浅色界面再「啪」地变暗。
+//
+// 这里读的是 localStorage 缓存。真正的真值在服务端（GET /user/settings），
+// 登录后由 start() 里的 loadUserSettings 校正 —— 缓存只是为了让首屏不闪。
+(function () {
+  try {
+    var theme = localStorage.getItem('chatz_theme');
+    if (theme === 'dark' || theme === 'light') {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  } catch (e) {}
+})();
+
 // ---------- 背景预置（必须在 body 一开始就跑） ----------
 (function () {
   try {
