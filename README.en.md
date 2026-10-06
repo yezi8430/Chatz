@@ -19,25 +19,6 @@ and state stays in sync across every client in real time.
 
 ![Chatz web inbox](docs/screenshots/web-inbox.png)
 
-```text
-┌─────────────┬──────────────────────────────────────────┐
-│  Chatz      │  Inbox  Unread  Archived    🔍   Send     │
-├─────────────┼──────────────────────────────────────────┤
-│ + New chan. │  ● CPU alert            ×5   6h ago       │
-│ Discover    │    CPU 95%                                │
-│ Apps        │    [default channel] priority 9  #urgent  │
-│ Rules       │                                          │
-│ Mark all rd │  ● Disk alert                40m ago      │
-│             │    Disk 90%, 1st time, path /data1        │
-│ 📬 All chan │                                          │
-│ # default   │  ● Webhook alert            1h ago        │
-│ # work      │    hook, 1st time                         │
-│             │                                          │
-│ [B] bob     │                                          │
-│    ●online   │                                          │
-└─────────────┴──────────────────────────────────────────┘
-```
-
 ## Features
 
 | Feature | Notes |
