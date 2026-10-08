@@ -287,88 +287,110 @@ router.post('/setup',
       return res.status(409).json({ error: '邮箱已被占用' });
     }
 
-    // 接管 migrate 预置的那个 admin，而不是新建一个 —— 避免实例里冒出两个管理员，
-    // 也保住它已经持有的默认频道订阅关系
-    db.prepare('UPDATE users SET username = ?, display_name = ?, password_hash = ?, email = ? WHERE id = ?')
-      .run(username, displayName || username, hashPassword(password), email, admin.id);
-
-    markSetupCompleted();
-
-    // ── 日志语言：引导页是唯一「没有超管、却能定整机语言」的时刻 ──
-    //
-    // 界面在这里选了英文，容器日志就跟着说英文 —— 否则一个英文用户装完，
-    // `docker compose logs` 里还是满屏中文，等于白选。
-    // 🔴 只接受 en / zh 两个字面值（saveLang 内部还会 normalize 一次），
-    //    别的值一律忽略 —— 语言是整机设置，不能被塞进任意字符串。
-    const setupLang = req.body && req.body.lang;
-    if (setupLang === 'en' || setupLang === 'zh') {
-      const beforeLang = i18n.getLang();
-      const nowLang = i18n.saveLang(db, setupLang);
-      // 和 PUT /config/lang 保持一致：切过去的那一行**用新语言**打。
-      // 不然装完想确认"日志到底说哪种语言"只能去重启看横幅。
-      if (nowLang !== beforeLang) {
-        i18n.log('lang.changed', { name: i18n.t(nowLang === 'en' ? 'lang.en' : 'lang.zh') });
-      }
-    }
-
-    // ── 预置数据的名字也跟着语言走 ──
-    //
-    // 默认频道是 migrate 建出来的种子（全新库那时 meta.lang 还空 ⇒ 中文）。
-    // 界面选了英文却看到一个「默认频道」，等于白选 —— 前端 i18n 不会碰频道名
-    // （那是用户数据，translateTree 只在 applyDom 时跑一遍，动态渲染的不翻）。
-    // ⇒ 只能在这一刻、在服务端把它改成英文。
-    //
-    // 🔴 **只动"还是预置原文"的那一条**：名字只要被改过（用户自己起的、或已经是
-    //    另一种语言的预置名）就一律不动 —— 用户数据绝不能被语言切换覆盖。
-    try {
-      const zhName = i18n.tIn('channel.defaultName', 'zh');
-      const enName = i18n.tIn('channel.defaultName', 'en');
-      const seed = db.prepare('SELECT id, name FROM channels WHERE id = 1').get();
-      if (seed && (seed.name === zhName || seed.name === enName)) {
-        db.prepare('UPDATE channels SET name = ?, description = ? WHERE id = 1')
-          .run(i18n.t('channel.defaultName'), i18n.t('channel.defaultDesc'));
-      }
-    } catch (e) { /* 改不动就保持原样：频道名不对只是难看，不该让初始化失败 */ }
-
-    // ── 主密钥：全新安装时到这一刻才生成 ──
-    //
-    // 🔴 以前是 migrate 在启动时凭空生成、拿它当 admin 的初始密码、再把明文往日志打一次。
-    //    现在改成引导页生成，带来三个好处：
-    //      ① 密钥**永远不进容器日志**（日志会被采集/转发/备份，暴露面太大）；
-    //      ② 超管手上只有这一枚凭据 —— 不再另外发一枚 'Web' 设备 token，
-    //         设备列表里就一行「默认 Token」，不会出现「两枚都有效」的困惑；
-    //      ③ 引导完成前实例处于无凭据状态，比留一个可能被人猜到的默认更安全。
-    //
-    // ⚠️ 如果主密钥已经存在（.env 里写了 AUTH_TOKEN，或老实例升级），
-    //    就沿用现有那枚，不在这里重新生成 —— 否则等于悄悄轮换，会把别人的凭据作废。
+    // ⚠️ 整个初始化必须是**一个事务**：它要连着改 users、写两条 meta
+    //    （setup_completed、auth_token）、可能改默认频道名、再插一行 devices。
+    //    各写各的会停在半初始化状态 —— 最糟的一种是主密钥已经落库、
+    //    设备行却没插进去：超管下次用密码登录时 /auth/login 的 ownMaster 分支
+    //    命中不了，等于把自己锁在门外，而引导页又因为 setup_completed=1 进不去了。
+    //    包成事务后，任一步失败 ⇒ 全部回滚 ⇒ setup_completed 也没写 ⇒ 可以重来。
     let masterToken = getAuthToken();
-    if (!masterToken) {
-      masterToken = generateDeviceToken();
-      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('auth_token', ?)").run(masterToken);
-      // 同步到进程内：getAuthToken() 读的是 global，不设置的话本次进程里
-      // 后续请求（含下面马上要用的 resolveToken）拿到的还是空串。
+    let generatedMaster = false;
+    let updated = null;
+
+    db.transaction(() => {
+      // 接管 migrate 预置的那个 admin，而不是新建一个 —— 避免实例里冒出两个管理员，
+      // 也保住它已经持有的默认频道订阅关系
+      db.prepare('UPDATE users SET username = ?, display_name = ?, password_hash = ?, email = ? WHERE id = ?')
+        .run(username, displayName || username, hashPassword(password), email, admin.id);
+
+      markSetupCompleted();
+
+      // ── 日志语言：引导页是唯一「没有超管、却能定整机语言」的时刻 ──
+      //
+      // 界面在这里选了英文，容器日志就跟着说英文 —— 否则一个英文用户装完，
+      // `docker compose logs` 里还是满屏中文，等于白选。
+      // 🔴 只接受 en / zh 两个字面值（saveLang 内部还会 normalize 一次），
+      //    别的值一律忽略 —— 语言是整机设置，不能被塞进任意字符串。
+      //
+      // ⚠️ saveLang 除了写库还会改内存里的语言。万一这一整套回滚了，
+      //    内存和库会短暂不一致 —— 重启即自愈，比起半初始化的账号状态不算什么。
+      const setupLang = req.body && req.body.lang;
+      if (setupLang === 'en' || setupLang === 'zh') {
+        const beforeLang = i18n.getLang();
+        const nowLang = i18n.saveLang(db, setupLang);
+        // 和 PUT /config/lang 保持一致：切过去的那一行**用新语言**打。
+        // 不然装完想确认"日志到底说哪种语言"只能去重启看横幅。
+        if (nowLang !== beforeLang) {
+          i18n.log('lang.changed', { name: i18n.t(nowLang === 'en' ? 'lang.en' : 'lang.zh') });
+        }
+      }
+
+      // ── 预置数据的名字也跟着语言走 ──
+      //
+      // 默认频道是 migrate 建出来的种子（全新库那时 meta.lang 还空 ⇒ 中文）。
+      // 界面选了英文却看到一个「默认频道」，等于白选 —— 前端 i18n 不会碰频道名
+      // （那是用户数据，translateTree 只在 applyDom 时跑一遍，动态渲染的不翻）。
+      // ⇒ 只能在这一刻、在服务端把它改成英文。
+      //
+      // 🔴 **只动"还是预置原文"的那一条**：名字只要被改过（用户自己起的、或已经是
+      //    另一种语言的预置名）就一律不动 —— 用户数据绝不能被语言切换覆盖。
+      try {
+        const zhName = i18n.tIn('channel.defaultName', 'zh');
+        const enName = i18n.tIn('channel.defaultName', 'en');
+        const seed = db.prepare('SELECT id, name FROM channels WHERE id = 1').get();
+        if (seed && (seed.name === zhName || seed.name === enName)) {
+          db.prepare('UPDATE channels SET name = ?, description = ? WHERE id = 1')
+            .run(i18n.t('channel.defaultName'), i18n.t('channel.defaultDesc'));
+        }
+      } catch (e) { /* 改不动就保持原样：频道名不对只是难看，不该让初始化失败 */ }
+
+      // ── 主密钥：全新安装时到这一刻才生成 ──
+      //
+      // 🔴 以前是 migrate 在启动时凭空生成、拿它当 admin 的初始密码、再把明文往日志打一次。
+      //    现在改成引导页生成，带来三个好处：
+      //      ① 密钥**永远不进容器日志**（日志会被采集/转发/备份，暴露面太大）；
+      //      ② 超管手上只有这一枚凭据 —— 不再另外发一枚 'Web' 设备 token，
+      //         设备列表里就一行「默认 Token」，不会出现「两枚都有效」的困惑；
+      //      ③ 引导完成前实例处于无凭据状态，比留一个可能被人猜到的默认更安全。
+      //
+      // ⚠️ 如果主密钥已经存在（.env 里写了 AUTH_TOKEN，或老实例升级），
+      //    就沿用现有那枚，不在这里重新生成 —— 否则等于悄悄轮换，会把别人的凭据作废。
+      //
+      // 🔴 这里**只写库**，进程内的 global 等事务提交之后再同步（见下面）——
+      //    先设了再回滚，进程里就会拿着一枚库里根本不存在的密钥。
+      if (!masterToken) {
+        masterToken = generateDeviceToken();
+        db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('auth_token', ?)").run(masterToken);
+        generatedMaster = true;
+      }
+
+      // 登记成这个超管的设备：以后他用密码登录时，/auth/login 的 ownMaster 分支
+      // 会命中这一行、直接返回主密钥（见那里的注释，必须按 user_id 精确匹配）。
+      const now = Date.now();
+      const masterRow = db.prepare('SELECT id FROM devices WHERE token = ?').get(masterToken);
+      if (!masterRow) {
+        db.prepare(
+          'INSERT INTO devices (user_id, name, token, created_at, last_seen) VALUES (?, ?, ?, ?, ?)'
+        ).run(admin.id, '默认 Token', masterToken, now, now);
+      }
+
+      updated = db.prepare('SELECT * FROM users WHERE id = ?').get(admin.id);
+
+      audit.fromReq(req, {
+        action: 'setup.complete',
+        target: String(admin.id),
+        meta: { username, lang: i18n.getLang(), langLocked: i18n.isLocked() },
+      });
+    })();
+
+    // 事务真的提交成功了，才把主密钥同步到进程内：
+    // getAuthToken() 读的是 global，不同步的话本次进程里后续请求
+    // （含紧接着就要用的 resolveToken）拿到的还是空串。
+    if (generatedMaster) {
       global.__AUTH_TOKEN__ = masterToken;
       global.__AUTH_TOKEN_UNINITIALIZED__ = false;
       global.__AUTH_TOKEN_SOURCE__ = 'db';
     }
-
-    // 登记成这个超管的设备：以后他用密码登录时，/auth/login 的 ownMaster 分支
-    // 会命中这一行、直接返回主密钥（见那里的注释，必须按 user_id 精确匹配）。
-    const now = Date.now();
-    const masterRow = db.prepare('SELECT id FROM devices WHERE token = ?').get(masterToken);
-    if (!masterRow) {
-      db.prepare(
-        'INSERT INTO devices (user_id, name, token, created_at, last_seen) VALUES (?, ?, ?, ?, ?)'
-      ).run(admin.id, '默认 Token', masterToken, now, now);
-    }
-
-    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(admin.id);
-
-    audit.fromReq(req, {
-      action: 'setup.complete',
-      target: String(admin.id),
-      meta: { username, lang: i18n.getLang(), langLocked: i18n.isLocked() },
-    });
 
     res.json({ user: rowToUser(updated), token: masterToken });
   }

@@ -8,6 +8,36 @@ const i18n = require('./serverI18n');
 const MAX_PATTERN_LEN = 200;
 const MAX_INPUT_LEN = 10000;
 
+// ── 环路闸门 / 扇出闸门 ────────────────────────────────────
+//
+// 【环路】applyRoutes 本身是单趟的、也不派生新消息，所以严格说不存在死循环。
+// 但 `call_webhook` 可以指向本实例自己的 /hook/:token —— 那条新消息同样命中
+// 同一条规则、再发一次 webhook，环就成立了。麻烦的是它是**异步**的：
+// 出去一趟 HTTP 再回来，任何"进程内执行次数"的计数都拦不住。
+//
+// ⇒ 闸门必须是**跟着消息走的代次**，而且要能穿过 HTTP：
+//      · 往外发时带上 `X-Chatz-Hop: n+1`
+//      · `POST /hook/:token` 收到时读回来，写进 ctx._hops
+//      · 代次到上限就**不再触发 call_webhook**，环自然断掉
+//
+// 上限取 3：正常的「A 调 B、B 再调 C」链式集成不会到 3 层，
+// 而自指环在第 1 层就会满 3 圈停下 —— 最多多出 3 条消息，不会无限。
+const HOP_HEADER = 'x-chatz-hop';
+const MAX_ROUTE_HOPS = 3;
+
+// 【扇出】一条消息最多额外广播到几个频道。
+// broadcast_to 可以填一堆 id、规则又能多条叠加，没有上限的话一条消息能被复制成
+// 几十条、每条再扇给该频道的每个订阅者。这不是死循环，是"一转就炸"，
+// 而且比死循环更容易撞上 —— 因为它不需要规则的产出能反过来触发规则。
+const MAX_EXTRA_CHANNELS = 10;
+
+/** 同一条消息的同一种告警只打一次，免得一条消息刷几十行日志 */
+function warnOnce(ctx, flag, fn) {
+  if (ctx[flag]) return;
+  ctx[flag] = true;
+  fn();
+}
+
 function safeRegex(pattern, flags = 'i') {
   if (typeof pattern !== 'string') return null;
   if (pattern.length === 0 || pattern.length > MAX_PATTERN_LEN) return null;
@@ -100,7 +130,19 @@ function applyAction(action, ctx) {
     case 'broadcast_to': {
       ctx.extraChannels = ctx.extraChannels || [];
       const ids = Array.isArray(action.value) ? action.value : [action.value];
-      ctx.extraChannels.push(...ids.map(Number).filter(n => n > 0));
+      const want = ids.map(Number).filter(n => n > 0);
+
+      const room = MAX_EXTRA_CHANNELS - ctx.extraChannels.length;
+      if (room <= 0) {
+        warnOnce(ctx, '_warnedFanout', () =>
+          i18n.warn('route.fanoutTruncated', { max: MAX_EXTRA_CHANNELS }));
+        break;
+      }
+      if (want.length > room) {
+        warnOnce(ctx, '_warnedFanout', () =>
+          i18n.warn('route.fanoutTruncated', { max: MAX_EXTRA_CHANNELS }));
+      }
+      ctx.extraChannels.push(...want.slice(0, room));
       break;
     }
     case 'drop':
@@ -110,6 +152,16 @@ function applyAction(action, ctx) {
       ctx.message.message = String(action.value || '').slice(0, 200) + (ctx.message.message || '');
       break;
     case 'call_webhook': {
+      // 🔴 环路闸门：代次到上限就**不再往外发**，环在这里断掉。
+      //    消息本身照常入库 —— 它内容是合法的，只是不该再触发规则了。
+      //    （配套的另一半在 POST /hook/:token：把 X-Chatz-Hop 读回来写进 ctx._hops）
+      const hops = ctx._hops || 0;
+      if (hops >= MAX_ROUTE_HOPS) {
+        warnOnce(ctx, '_warnedHop', () =>
+          i18n.warn('route.hopLimitReached', { n: hops }));
+        break;
+      }
+
       const url = String(action.value || '');
       if (!/^https?:\/\//i.test(url)) break;
       setImmediate(async () => {
@@ -126,7 +178,12 @@ function applyAction(action, ctx) {
 
           fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              // 代次 +1：下一棒收到后 ctx._hops 就是 hops+1。
+              // 用 header 而不是塞进 body —— 消息正文是要给用户看的，不该被我们加料。
+              [HOP_HEADER]: String(hops + 1),
+            },
             body: JSON.stringify(ctx.message),
             signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined,
           }).catch(() => {});
@@ -200,4 +257,14 @@ function applyRoutes(ctx) {
   return ctx;
 }
 
-module.exports = { evalCondition, applyAction, applyRoutes, safeRegex, safeMatch };
+module.exports = {
+  evalCondition,
+  applyAction,
+  applyRoutes,
+  safeRegex,
+  safeMatch,
+  // 环路闸门：hooks.js 要用 HOP_HEADER 把代次读回来
+  HOP_HEADER,
+  MAX_ROUTE_HOPS,
+  MAX_EXTRA_CHANNELS,
+};

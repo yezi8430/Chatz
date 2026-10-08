@@ -6,11 +6,13 @@ const ws = require('./ws');
 const audit = require('./audit');
 const { rateLimit, consume } = require('./rateLimit');
 const { hashPassword, verifyPassword } = require('./migrate');
+const { cleanupAttachmentsOfRows } = require('./attachments');
 
 const router = express.Router();
 
 const DATA_DIR = process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : './data';
 const CHANNEL_ICONS_DIR = path.join(DATA_DIR, 'channel-icons');
+const ATTACHMENTS_DIR = path.join(DATA_DIR, 'attachments');
 fs.mkdirSync(CHANNEL_ICONS_DIR, { recursive: true });
 
 function rowToChannel(row, opts = {}) {
@@ -204,30 +206,41 @@ router.post('/channel',
   // 频道名允许重名（像 QQ 群：id 唯一、群名随便），不查重
 
   const now = Date.now();
-  const info = db.prepare(`
-    INSERT INTO channels (name, description, image, is_public, creator_id, created_at, password_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    name.trim(),
-    description || null,
-    image || null,
-    is_public ? 1 : 0,
-    req.user.id,
-    now,
-    passwordHash
-  );
 
-  // 只自动订阅创建者本人：自己建的频道自己看得见。
-  // 其他人不会被订阅，要收消息得去「发现频道」显式订阅。
-  db.prepare(`
-    INSERT OR IGNORE INTO subscriptions (user_id, channel_id, created_at)
-    VALUES (?, ?, ?)
-  `).run(req.user.id, info.lastInsertRowid, now);
+  // ⚠️ 「建频道」和「给创建者订阅」必须在**同一个事务**里：
+  //    两步中间挂了会留下一个没人订阅的孤儿频道 —— 超管在 /admin 里看得见，
+  //    创建者自己反而看不见（他没有订阅关系），于是谁都进不去也删不掉。
+  //    订阅用 INSERT OR IGNORE，同一人重复订阅不会撞 UNIQUE。
+  const newChannelId = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO channels (name, description, image, is_public, creator_id, created_at, password_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      name.trim(),
+      description || null,
+      image || null,
+      is_public ? 1 : 0,
+      req.user.id,
+      now,
+      passwordHash
+    );
 
-  // 同上：订阅关系一变就得刷，否则创建者已在线的设备收不到这个频道的消息
+    // 只自动订阅创建者本人：自己建的频道自己看得见。
+    // 其他人不会被订阅，要收消息得去「发现频道」显式订阅。
+    db.prepare(`
+      INSERT OR IGNORE INTO subscriptions (user_id, channel_id, created_at)
+      VALUES (?, ?, ?)
+    `).run(req.user.id, info.lastInsertRowid, now);
+
+    return info.lastInsertRowid;
+  })();
+
+  // 🔴 广播和刷新订阅关系一律留在事务**外面**：那是进程外的副作用，回滚不了。
+  //    只有事务真的提交成功了才该发生 —— 否则会推一个并不存在的频道出去。
+  //    订阅关系一变就得刷，否则创建者已在线的设备收不到这个频道的消息
   ws.refreshUserChannels(req.user.id);
 
-  const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(info.lastInsertRowid);
+  const ch = db.prepare('SELECT * FROM channels WHERE id = ?').get(newChannelId);
 
   // 广播里不带 subscribed/muted：收件人不止一个，
   // 而"你订没订/静音没静音"是每个用户各自的状态，塞进广播里必然是错的。
@@ -395,6 +408,23 @@ router.delete('/channel/:id', (req, res) => {
   });
   tx();
 
+  // 频道里所有消息被整批软删了，它们独占的附件跟着删。
+  //
+  // ⚠️ 查询放在 tx() **之后**、且不筛 deleted_at：事务已经把这些消息标成已删，
+  //    再带 `deleted_at IS NULL` 就什么都查不到了。频道行删了但消息的 channel_id 还在，
+  //    所以 `WHERE channel_id = ?` 照样捞得到。
+  // ⚠️ 只捞**真的引用了附件**的那些行 —— 大频道几万条消息，把正文全捞出来
+  //    会把内存和事件循环一起吃掉（同步驱动，跑的时候整个进程是停的）。
+  const removedAttachments = cleanupAttachmentsOfRows({
+    db,
+    attachmentsDir: ATTACHMENTS_DIR,
+    rows: db.prepare(`
+      SELECT message, extras FROM messages
+      WHERE channel_id = ?
+        AND (message LIKE '%/attachments/%' OR extras LIKE '%/attachments/%')
+    `).all(id),
+  });
+
   for (const m of msgRows) {
     ws.broadcastToChannel(id, { id: m.id, event: 'messageDeleted' });
   }
@@ -407,10 +437,10 @@ router.delete('/channel/:id', (req, res) => {
   audit.fromReq(req, {
     action: 'channel.delete',
     target: String(id),
-    meta: { name: ch.name, deletedMessages: msgRows.length },
+    meta: { name: ch.name, deletedMessages: msgRows.length, removedAttachments },
   });
 
-  res.json({ deletedMessages: msgRows.length });
+  res.json({ deletedMessages: msgRows.length, removedAttachments });
 });
 
 // POST /channel/:id/subscribe

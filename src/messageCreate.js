@@ -193,7 +193,12 @@ function attachApp(ctx, app) {
   }
 }
 
-function createMessage({ appid, channel_id, message, title, priority, extras, tags, silent, userId }) {
+function createMessage({ appid, channel_id, message, title, priority, extras, tags, silent, userId, hops }) {
+  // 派生代次（路由环路闸门，见 routing.js 的 MAX_ROUTE_HOPS）。
+  // 只有 `POST /hook/:token` 会从 X-Chatz-Hop 头里读出来传进来；
+  // 用户手动发消息 / 第三方 webhook 首次进来都是 0。
+  // 🔴 这是外部可控输入 ⇒ 必须校验，不能信：负值、NaN、巨大值一律归 0。
+  const safeHops = Number.isInteger(hops) && hops > 0 && hops < 1000 ? hops : 0;
   // ============ 输入清理 ============
   let safeTitle = title != null ? String(title).slice(0, MAX_TITLE_LEN) : null;
   let safeMessage = message != null ? String(message).slice(0, MAX_MESSAGE_LEN) : '';
@@ -303,6 +308,7 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
     extraChannels: [],
     ownerId,
     ownerIsSuper,
+    _hops: safeHops,
   };
 
   const routed = applyRoutes(ctx);

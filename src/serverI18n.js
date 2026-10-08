@@ -237,6 +237,14 @@ const DICT = {
     zh: '🧹 启动清理孤儿附件 {n} 个',
     en: '🧹 swept {n} orphaned attachment(s) at startup',
   },
+  'attachment.sweepSkippedFresh': {
+    zh: '🧹 孤儿清理跳过 {n} 个刚上传的文件（还没被任何消息引用，见 ORPHAN_GRACE_MS）',
+    en: '🧹 orphan sweep skipped {n} just-uploaded file(s) (not referenced yet, see ORPHAN_GRACE_MS)',
+  },
+  'attachment.unlinkFailed': {
+    zh: '⚠️ 附件删除失败（会一直留在盘上，下次清理会重试）: {name} —— {msg}',
+    en: '⚠️ failed to delete attachment (stays on disk, next sweep retries): {name} — {msg}',
+  },
 
   // ── 审计 ────────────────────────────────────────────────
   'audit.trimmed': { zh: '🧾 审计日志裁剪：删除 {n} 条', en: '🧾 audit trimming: removed {n} row(s)' },
@@ -259,6 +267,14 @@ const DICT = {
   'route.webhookRejected': {
     zh: '[route] call_webhook 已拒绝: {url} —— {reason}',
     en: '[route] call_webhook rejected: {url} — {reason}',
+  },
+  'route.hopLimitReached': {
+    zh: '[route] 这条消息已经派生 {n} 层，不再触发 call_webhook（防规则自指成环）',
+    en: '[route] message already {n} hop(s) deep — call_webhook skipped (loop guard)',
+  },
+  'route.fanoutTruncated': {
+    zh: '[route] broadcast_to 目标频道超过 {max} 个，多余的已丢弃（防一条消息扇出成几十条）',
+    en: '[route] broadcast_to exceeded {max} channels — extra targets dropped (fan-out guard)',
   },
 
   // ── WebSocket ───────────────────────────────────────────

@@ -1028,8 +1028,13 @@ Editable: `name`, `description`, `image`, `is_public`, `password`. Broadcasts `c
 ### `DELETE /channel/:id` creator / super-admin
 
 ```json
-{"deletedMessages": 5}
+{"deletedMessages": 5, "removedAttachments": 2}
 ```
+
+`removedAttachments` is how many attachment files went away with it: after every message in the
+channel is soft-deleted, attachments that **no other message still references** are removed
+(checked one by one via `isStillReferenced`). Still-referenced ones are kept — the same
+attachment URL can be posted again, so it must not vanish along with one message.
 
 Behaviour:
 
@@ -1442,11 +1447,12 @@ Editable: `name`, `description`, `image`, `channel_id`, `template`.
 ### `DELETE /application/:id` logged in
 
 ```json
-{"deletedMessages": 5}
+{"deletedMessages": 5, "removedAttachments": 2}
 ```
 
 Also soft-deletes every message sent by that app (broadcasting `messageDeleted` one by one) and
-deletes the app icon file.
+deletes the app icon file. `removedAttachments` works like in `DELETE /channel/:id`: attachments
+no longer referenced by anyone go away with it.
 
 ### `POST /application/:id/icon` logged in
 
@@ -1671,6 +1677,40 @@ The rule engine runs before a message is persisted. Rules are matched and execut
 > (super-admins exempt) — otherwise any registered user could push messages into someone else's
 > private channel.
 
+### Three loop / fan-out guards
+
+The rule engine itself is single-pass (`applyRoutes` never derives new messages), but
+`call_webhook` can point at **this instance's own `/hook/:token`** — the new message then
+matches the same rule and fires the webhook again. And it is **async** (one HTTP round trip
+out and back), so in-process execution counters cannot catch it. Hence three guards, from
+"never let it be configured" to "stop the bleeding once it is looping":
+
+| # | Guard | When | Behaviour |
+|---|---|---|---|
+| 1 | `call_webhook` self-reference check | **on rule save** | URL path is `/hook/` and host is this instance → `400` |
+| 2 | `X-Chatz-Hop` generation counter | runtime | +1 each hop; at `MAX_ROUTE_HOPS` (3) `call_webhook` stops firing |
+| 3 | Fan-out cap | runtime | `broadcast_to` beyond `MAX_EXTRA_CHANNELS` (10) channels is dropped, with a warning |
+
+- Guard 1's "self" = the request's `Host` header plus `localhost` / `127.0.0.1` / `::1`.
+  Both conditions must hold (path `/hook/` **and** host is self) — otherwise services like
+  Node-RED or Home Assistant that also expose a `/hook/` path would be blocked by mistake.
+  Only *this* instance is blocked; chaining to another Chatz instance is legitimate.
+- Guard 2 travels in an **HTTP header**, not in the message body (the body is user-visible
+  content and must not be tampered with). Third-party webhooks simply omit it → parsed as 0,
+  behaviour unchanged.
+- Guard 3 is not about loops but about "**one message exploding**": a single message copied
+  into dozens of channels, then fanned out to every subscriber of each. That is easier to hit
+  than a true loop, because it does not require a rule's output to re-trigger the rule.
+
+`POST /hook/:token` accepts an optional request header:
+
+```bash
+curl -X POST http://<host>:20010/hook/<token> \
+  -H "Content-Type: application/json" \
+  -H "X-Chatz-Hop: 1" \
+  -d '{"title":"[ALERT] disk almost full","message":"…"}'
+```
+
 ### `GET /route` logged in
 
 ```json
@@ -1704,6 +1744,14 @@ The rule engine runs before a message is persisted. Rules are matched and execut
 ```
 
 `priority` defaults to **50** and is clamped to 0–100. `conditions` and `actions` are required.
+
+❌ A `call_webhook` action pointing back at this very instance (`/hook/` + own host) → `400`:
+
+```json
+{"error": "call_webhook 不能回调到 Chatz 自己 —— 新消息会再次命中这条规则，无限循环：http://localhost:20010/hook/abc"}
+```
+
+(See "Three loop / fan-out guards" above for the exact matching rule.)
 
 ### `PATCH /route/:id` logged in
 

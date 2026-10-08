@@ -5,6 +5,23 @@ const crypto = require('crypto');
 const { detectImageExt } = require('./sanitize');
 const { rateLimit } = require('./rateLimit');
 const audit = require('./audit');
+const i18n = require('./serverI18n');
+
+/**
+ * 「刚传上来、还没被任何消息引用」的宽限期
+ *
+ * 附件是**先落盘、后发消息**两步：上传接口把文件存下来返回一个 URL，
+ * 客户端拿着 URL 去发消息，消息里才出现对它的引用。
+ * 在这两步之间这个文件在库里是"谁都没引用"的状态 —— 跟真孤儿长得一模一样。
+ * 于是「上传完马上重启」就会被 sweep 当孤儿删掉，客户端握着一个 404 的 URL。
+ *
+ * 所以全量 sweep 对**近期创建**的文件网开一面，等下一次再清理。
+ * 代价只是真孤儿多躺一会儿（最多到下次 sweep），比删掉正在用的文件划算得多。
+ *
+ * ⚠️ 这个宽限**只加在全量 sweep 上**，不加在 cleanupMessageAttachments（删消息那条路）：
+ *    那边是显式删除，消息已经软删、引用关系当场就能查清，没有"还没来得及引用"这回事。
+ */
+const ORPHAN_GRACE_MS = 10 * 60 * 1000;
 
 /**
  * 附件上传
@@ -188,7 +205,50 @@ function cleanupMessageAttachments({ db, attachmentsDir, row }) {
     try {
       fs.unlinkSync(path.join(attachmentsDir, name));
       removed++;
-    } catch {}
+    } catch (e) {
+      // 🔴 不能一律静默：文件"本来就不存在"（已经删过一次 / 压根没落盘）不是故障，
+      //    但权限问题、文件被占用、路径异常都是**真的没删掉** —— 默默吞掉的话
+      //    这个文件会永远留在盘上，而且没人知道磁盘在泄漏。
+      if (e && e.code !== 'ENOENT') {
+        i18n.warn('attachment.unlinkFailed', { name, msg: e.message });
+      }
+    }
+  }
+  return removed;
+}
+
+/**
+ * 清理**一批消息**共用的附件（删频道 / 删应用这种整批软删的场景）
+ *
+ * 单条删除走 `cleanupMessageAttachments`；整批删除（DELETE /channel/:id、
+ * DELETE /application/:id）一次会软删几千条消息，逐条调那个会有几千次查询，
+ * 所以这里先把这批消息里的附件名**去重**，再逐个判断引用 ——
+ * 开销只跟**附件个数**有关，跟消息条数无关。
+ *
+ * @param rows 只需要带 `message` 和 `extras` 两个字段
+ * @returns 实际删掉的文件数
+ */
+function cleanupAttachmentsOfRows({ db, attachmentsDir, rows }) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+
+  // 去重：同一个附件常被这批消息里的好几条引用
+  const names = new Set();
+  for (const row of rows) {
+    for (const n of attachmentNamesIn(row)) names.add(n);
+  }
+  if (names.size === 0) return 0;
+
+  let removed = 0;
+  for (const name of names) {
+    if (isStillReferenced(db, name)) continue;
+    try {
+      fs.unlinkSync(path.join(attachmentsDir, name));
+      removed++;
+    } catch (e) {
+      if (e && e.code !== 'ENOENT') {
+        i18n.warn('attachment.unlinkFailed', { name, msg: e.message });
+      }
+    }
   }
   return removed;
 }
@@ -196,9 +256,18 @@ function cleanupMessageAttachments({ db, attachmentsDir, row }) {
 /**
  * 全量清理孤儿附件（启动时跑一次）
  *
- * 覆盖"删消息"之外的所有路径：清空全部消息、裁剪历史、删频道…… 那些地方不会逐条
- * 通知附件，所以用"扫一遍目录、谁都没引用就删"兜底。
+ * 兜底用的。会默默产生孤儿的路径有两层：
+ *   · 已覆盖：删单条消息（cleanupMessageAttachments）、删频道 / 删应用
+ *     （cleanupAttachmentsOfRows —— 这两个入口现在都显式清了）
+ *   · 未覆盖：上传了但还没发出消息就没了（客户端弃用）、以及将来要加的
+ *     "清空全部消息 / 历史裁剪"。这些只能靠"扫一遍目录、谁都没引用就删"。
+ *
  * 只把**正文/extras 里出现过 /attachments/ 的行**取出来，避免全表扫描撑爆内存。
+ *
+ * ⚠️ 现在只在启动时跑一次 —— 也就是说上面"未覆盖"那批要等重启才回收。
+ *    加宽限期（ORPHAN_GRACE_MS）之后这一点更明显：真孤儿会被一直推到下次重启。
+ *    等真做了"清空全部消息 / 历史裁剪"，就该把它改成定时 + 分页跑
+ *    （照 index.js 里 audit.prune() 那个 setInterval + unref 的写法）。
  *
  * @returns 实际删掉的文件数
  */
@@ -221,13 +290,33 @@ function sweepOrphanAttachments({ db, attachmentsDir }) {
     for (const name of attachmentNamesIn(row)) referenced.add(name);
   }
 
+  const now = Date.now();
   let removed = 0;
+  let fresh = 0;
+
   for (const file of files) {
     if (referenced.has(file)) continue;
+
+    // 「刚传上来还没被引用」的宽限，见 ORPHAN_GRACE_MS 的说明
+    let st;
+    try {
+      st = fs.statSync(path.join(attachmentsDir, file));
+    } catch { continue; }   // stat 都失败（文件没了/没权限）：跳过，别当孤儿删
+    if (now - st.mtimeMs < ORPHAN_GRACE_MS) { fresh++; continue; }
+
     try {
       fs.unlinkSync(path.join(attachmentsDir, file));
       removed++;
-    } catch {}
+    } catch (e) {
+      if (e && e.code !== 'ENOENT') {
+        i18n.warn('attachment.unlinkFailed', { name: file, msg: e.message });
+      }
+    }
+  }
+
+  if (fresh > 0) {
+    // 说清楚为什么少删了：不然看到「清理了 0 个」会以为功能坏了
+    i18n.log('attachment.sweepSkippedFresh', { n: fresh });
   }
   return removed;
 }
@@ -235,5 +324,6 @@ function sweepOrphanAttachments({ db, attachmentsDir }) {
 module.exports = {
   createAttachmentsRouter,
   cleanupMessageAttachments,
+  cleanupAttachmentsOfRows,
   sweepOrphanAttachments,
 };

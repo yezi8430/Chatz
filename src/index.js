@@ -19,6 +19,7 @@ const { createBackgroundRouter } = require('./background');
 const {
   createAttachmentsRouter,
   cleanupMessageAttachments,
+  cleanupAttachmentsOfRows,
   sweepOrphanAttachments,
 } = require('./attachments');
 const { rateLimit } = require('./rateLimit');
@@ -566,6 +567,19 @@ app.delete('/application/:id', (req, res) => {
   });
   tx();
 
+  // 这个应用发的消息被整批软删了，它们独占的附件跟着删。
+  // 同 DELETE /channel/:id：查询放在 tx() **之后**且不筛 deleted_at，
+  // 也只捞引用了附件的那些行（理由见那边）。
+  const removedAttachments = cleanupAttachmentsOfRows({
+    db,
+    attachmentsDir: ATTACHMENTS_DIR,
+    rows: db.prepare(`
+      SELECT message, extras FROM messages
+      WHERE appid = ?
+        AND (message LIKE '%/attachments/%' OR extras LIKE '%/attachments/%')
+    `).all(id),
+  });
+
   if (appRow && appRow.image && appRow.image.startsWith('/icons/')) {
     try { fs.unlinkSync(path.join(ICONS_DIR, path.basename(appRow.image))); } catch {}
   }
@@ -577,9 +591,9 @@ app.delete('/application/:id', (req, res) => {
   audit.fromReq(req, {
     action: 'app.delete',
     target: String(id),
-    meta: { name: appRow ? appRow.name : null, deletedMessages: msgRows.length },
+    meta: { name: appRow ? appRow.name : null, deletedMessages: msgRows.length, removedAttachments },
   });
-  res.status(200).json({ deletedMessages: msgRows.length });
+  res.status(200).json({ deletedMessages: msgRows.length, removedAttachments });
 });
 
 // ============================================================

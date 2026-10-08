@@ -15,6 +15,41 @@ function routeBelongsToUser(row, req) {
   return !!row && row.user_id === req.user.id;
 }
 
+/**
+ * 找出 actions 里「回调到 Chatz 自己」的那个 call_webhook，没有就返回 null
+ *
+ * ── 为什么要拦 ──
+ * 「标题带 [告警] → 回调 http://<自己>/hook/xxx」是最容易手滑配出来的环：
+ * 回调生成的新消息同样带 [告警] ⇒ 又命中这条规则 ⇒ 又回调。
+ * 而它是**异步**的（出去一趟 HTTP 再回来），靠"进程内执行次数"根本拦不住。
+ *
+ * 我们另有两道运行时防线（见 routing.js）：X-Chatz-Hop 代次闸门 + 扇出上限。
+ * 但那些是"环已经起来之后止损"，这一道是**压根别让它配出来** —— 保存时就 400，
+ * 比半夜起来擦库便宜得多。
+ *
+ * ── 判定口径：两条同时满足才算自指，少一条都会误伤 ──
+ *   1. 路径以 /hook/ 开头（本实例的 webhook 入口）
+ *   2. host 是"自己"：请求里的 Host 头（用户就是从这儿改规则的）+ 回环地址
+ * 第 1 条单独不够：Node-RED / Home Assistant 之类也可能有 /hook/ 路径。
+ * 只拦自己，不拦别的 Chatz 实例 —— 跨实例串联是合理用法。
+ */
+function findSelfWebhook(actions, req) {
+  const list = Array.isArray(actions) ? actions : [];
+  const selfHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+  const h = req && req.headers && req.headers.host;
+  if (h) selfHosts.add(String(h).split(':')[0].toLowerCase());
+
+  for (const a of list) {
+    if (!a || a.type !== 'call_webhook') continue;
+    let u;
+    try { u = new URL(String(a.value || '')); } catch { continue; }
+    if (!/^\/hook\//.test(u.pathname)) continue;
+    if (!selfHosts.has(u.hostname.toLowerCase())) continue;
+    return String(a.value);
+  }
+  return null;
+}
+
 function rowToRoute(row) {
   return {
     id: row.id,
@@ -43,6 +78,14 @@ router.post('/route',
   const { name, enabled, priority, conditions, actions } = req.body || {};
   if (!name) return res.status(400).json({ error: '请填写规则名称' });
   if (!conditions || !actions) return res.status(400).json({ error: 'conditions 和 actions 不能为空' });
+
+  // 环路闸门第 1 道：规则指回 Chatz 自己就别让它存下来（理由见 findSelfWebhook）
+  const selfUrl = findSelfWebhook(actions, req);
+  if (selfUrl) {
+    return res.status(400).json({
+      error: 'call_webhook 不能回调到 Chatz 自己 —— 新消息会再次命中这条规则，无限循环：' + selfUrl,
+    });
+  }
 
   let p = priority != null ? parseInt(priority, 10) : 50;
   if (isNaN(p)) p = 50;
@@ -90,6 +133,18 @@ router.patch('/route/:id', (req, res) => {
   }
 
   const { name, enabled, priority, conditions, actions } = req.body || {};
+
+  // 同上：改规则时也要查一遍。只查**这次真的传了 actions** 的情况；
+  // 没传就用库里现存的（下面 updates 里也不会动它）。
+  if (actions != null) {
+    const selfUrl = findSelfWebhook(actions, req);
+    if (selfUrl) {
+      return res.status(400).json({
+        error: 'call_webhook 不能回调到 Chatz 自己 —— 新消息会再次命中这条规则，无限循环：' + selfUrl,
+      });
+    }
+  }
+
   const updates = [];
   const params = [];
   if (name != null) { updates.push('name = ?'); params.push(name); }

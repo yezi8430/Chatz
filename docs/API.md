@@ -968,8 +968,12 @@ Query 参数：
 ### `DELETE /channel/:id` 创建者/超级管理员
 
 ```json
-{"deletedMessages": 5}
+{"deletedMessages": 5, "removedAttachments": 2}
 ```
+
+`removedAttachments` 是这次顺带删掉的附件文件数 —— 频道内所有消息被整批软删后，
+那些**没有别的消息还在引用**的附件会跟着删（`isStillReferenced` 逐个判断）。
+被别处引用的会保留：同一个附件 URL 可以被再发一次，不能跟着某条消息一起消失。
 
 行为：
 
@@ -1359,10 +1363,11 @@ id 最小的频道（默认频道 id = 1）。
 ### `DELETE /application/:id` 登录
 
 ```json
-{"deletedMessages": 5}
+{"deletedMessages": 5, "removedAttachments": 2}
 ```
 
 连带软删该应用发的所有消息，逐条广播 `messageDeleted`，并删除应用图标文件。
+`removedAttachments` 同 `DELETE /channel/:id`：没人再引用的附件跟着删。
 
 ### `POST /application/:id/icon` 登录
 
@@ -1576,6 +1581,37 @@ curl -H "Content-Type: application/json" \
 > ⚠️ `broadcast_to` 的目标频道会被过滤成「公开 / 自己订阅 / 自己创建」（超管不限）——
 >    防止任何注册用户把消息投进别人的私有频道。
 
+### 三道环路 / 扇出闸门
+
+规则引擎本身是单趟的（`applyRoutes` 不派生新消息），但 `call_webhook` 可以指向
+**本实例自己的 `/hook/:token`** —— 那条新消息又会命中同一条规则、再发一次 webhook，
+环就成立了。而且它是**异步**的（出去一趟 HTTP 再回来），进程内的执行次数计数拦不住。
+所以有三道防线，从"别让它配出来"到"环起来之后止损"：
+
+| # | 防线 | 时机 | 行为 |
+|---|---|---|---|
+| 1 | `call_webhook` 自指校验 | **保存规则时** | URL 的路径是 `/hook/` 且 host 是自己 → `400` 拒绝存 |
+| 2 | `X-Chatz-Hop` 代次闸门 | 运行时 | 每往外发一次代次 +1，到 `MAX_ROUTE_HOPS`(3) 就不再触发 `call_webhook` |
+| 3 | 扇出上限 | 运行时 | `broadcast_to` 累计超过 `MAX_EXTRA_CHANNELS`(10) 个频道就丢弃多余的，并告警 |
+
+- 第 1 道的"自己"= 请求里的 `Host` 头 + `localhost` / `127.0.0.1` / `::1`。
+  两条要同时满足（路径是 `/hook/` **且** host 是自己）才拦 ——
+  否则会误伤 Node-RED / Home Assistant 这类也有 `/hook/` 路径的服务。
+  只拦自己，不拦别的 Chatz 实例（跨实例串联是合理用法）。
+- 第 2 道的代次靠 **HTTP 头**传递，不放进消息正文（正文是给用户看的，不该被加料）。
+  第三方 webhook 不带这个头 ⇒ 解析成 0，行为不变。
+- 第 3 道防的不是死循环，是"**一转就炸**"：一条消息被复制成几十条、每条再扇给
+  每个订阅者。这比死循环更容易撞上，因为它不需要规则的产出能反过来触发规则。
+
+`POST /hook/:token` 接受可选的请求头：
+
+```bash
+curl -X POST http://<host>:20010/hook/<token> \
+  -H "Content-Type: application/json" \
+  -H "X-Chatz-Hop: 1" \
+  -d '{"title":"[告警] 磁盘快满了","message":"…"}'
+```
+
 ### `GET /route` 登录
 
 ```json
@@ -1609,6 +1645,14 @@ curl -H "Content-Type: application/json" \
 ```
 
 `priority` 默认 **50**，会被夹到 0–100。`conditions` 和 `actions` 必填。
+
+❌ `actions` 里的 `call_webhook` 若指向本实例自己（`/hook/` + 自己的 host）→ `400`：
+
+```json
+{"error": "call_webhook 不能回调到 Chatz 自己 —— 新消息会再次命中这条规则，无限循环：http://localhost:20010/hook/abc"}
+```
+
+（判定口径见上面「三道环路 / 扇出闸门」。）
 
 ### `PATCH /route/:id` 登录
 

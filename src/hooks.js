@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('./db');
 const { renderTemplate } = require('./template');
 const { createMessage } = require('./messageCreate');
+const { HOP_HEADER } = require('./routing');
 const { rateLimit } = require('./rateLimit');
 const audit = require('./audit');
 const { tokenPrefix } = require('./tokenGen');
@@ -216,6 +217,13 @@ router.post('/hook/:token',
         const channel_id = data.channel_id != null ? data.channel_id : app.channel_id;
         const silent = data.silent === true;
 
+        // 路由环路闸门的另一半（发出去那一半在 routing.js 的 call_webhook）：
+        // 本实例自己发出来的 call_webhook 会带上 X-Chatz-Hop，把代次读回来继续往下传。
+        // 第三方（Uptime Kuma / GitHub …）当然不会带这个头 ⇒ 解析出来是 NaN ⇒ 归 0。
+        // 🔴 这是客户端可控的头部，所以只认"正整数"，其它一律当第 0 层。
+        const rawHop = parseInt(req.headers[HOP_HEADER], 10);
+        const hops = Number.isInteger(rawHop) && rawHop > 0 ? rawHop : 0;
+
         const result = createMessage({
           appid: app.id,
           channel_id,
@@ -225,6 +233,7 @@ router.post('/hook/:token',
           extras: final.extras,
           tags: final.tags,
           silent,
+          hops,
         });
 
         // 被权限/存在性校验挡下：响应在 setImmediate 之前就已经发了

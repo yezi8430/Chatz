@@ -17,6 +17,32 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// ── synchronous ──────────────────────────────────────────
+//
+// WAL 模式下 NORMAL 是 SQLite 官方推荐的搭配，也是这里最大的一个写入性能开关：
+//   FULL（默认） 每次 commit 都 fsync ⇒ 单进程写入上限大概几百条/秒
+//   NORMAL       WAL 只在 checkpoint 时 fsync
+//
+// 取舍要说清楚：NORMAL 下**掉电/系统崩溃**可能丢掉最后几个已提交的事务，
+// 但**不会损坏库文件**（这个保证来自 WAL，不来自 synchronous）。
+// 进程自己崩（SIGKILL / 未捕获异常）则一条都不丢 —— 数据早就交给操作系统了。
+// 对一个通知服务来说，"极端情况下少收最后几条通知"远好过"平时写入就慢"。
+//
+// 想改回去：SQLITE_SYNCHRONOUS=FULL。白名单收一下，别让 env 拼进 pragma。
+const SYNC_MODES = ['OFF', 'NORMAL', 'FULL', 'EXTRA'];
+const syncMode = String(process.env.SQLITE_SYNCHRONOUS || 'NORMAL').toUpperCase();
+db.pragma(`synchronous = ${SYNC_MODES.includes(syncMode) ? syncMode : 'NORMAL'}`);
+
+// ── busy_timeout ─────────────────────────────────────────
+//
+// 5000ms 本来就是 better-sqlite3 的默认值，这里**显式写出来**是为了让它可查：
+// 代码里看不见的东西，没人会想到去调，也没人知道它到底是多少。
+//
+// 注意它防的是**进程外**的连接（`docker exec ... sqlite3`、备份脚本、
+// 或者误开了第二个容器共用同一个 data/）—— 本进程只有一个 db 连接，
+// 自己不会跟自己抢写锁。真被外部写者占住超过 5 秒才会抛 SQLITE_BUSY。
+db.pragma('busy_timeout = 5000');
+
 // ============================================================
 // v1 表结构（保留，不做改动，只作为首次创建时的骨架）
 // ============================================================
