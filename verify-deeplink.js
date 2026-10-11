@@ -230,6 +230,32 @@ ok('折叠流程里调用了 applyMainCover', /const cover = applyMainCover\(mai
 ok('后端仍有 stripCoverKeys（不一致时要摘）', /function stripCoverKeys/.test(mcSrc));
 ok('前端有 coverUrlFromExtras 且子项据此决定是否画图', /const hideChildImg = !!mainCover/.test(appSrc) && /if \(imgUrl && !hideChildImg\)/.test(appSrc));
 
+console.log('— 6d. DOMPurify 的 URI 白名单必须放行同源相对路径 —');
+// 缓存封面 / 上传附件都是 `/attachments/xxx`（相对路径）。白名单只认 https?/mailto/
+// data:image 时，DOMPurify 会把 src/href 删掉 ⇒ <img alt="封面"> 裂图（实测踩到）。
+{
+  // 从源码里抠出这个正则字面量：不能简单用 /(.+?)\// —— 模式内部有转义的 \/
+  // 会被提前截断。改成"取整行、从第一个 / 到最后一个 /"。
+  const line = appSrc.split('\n').find(l => l.includes('ALLOWED_URI_REGEXP:'));
+  const rest = line ? line.slice(line.indexOf('ALLOWED_URI_REGEXP:') + 'ALLOWED_URI_REGEXP:'.length).trim() : '';
+  const lastSlash = rest.lastIndexOf('/');
+  const pattern = rest.slice(1, lastSlash);
+  const flags = rest.slice(lastSlash + 1).replace(/[^a-z]/g, '');
+  ok('能从 app.js 里抠出这个白名单正则', !!pattern && pattern.startsWith('^'));
+  if (pattern) {
+    const re = new RegExp(pattern, flags);
+    ok('放行 /attachments/cached-xxx.jpg', re.test('/attachments/cached-abc123.jpg'));
+    ok('放行普通相对路径 /icons/x.png', re.test('/icons/x.png'));
+    ok('放行 https', re.test('https://jellyfin.example.com/Items/x/Images/Primary'));
+    ok('放行 mailto', re.test('mailto:a@b.com'));
+    ok('放行 data:image', re.test('data:image/png;base64,AAAA'));
+    ok('挡掉协议相对 //evil.com/x.png', !re.test('//evil.com/x.png'));
+    ok('挡掉 javascript:', !re.test('javascript:alert(1)'));
+    ok('挡掉 data:text/html', !re.test('data:text/html,<script>x</script>'));
+    ok('挡掉 vbscript:', !re.test('vbscript:msgbox(1)'));
+  }
+}
+
 // ── 4. 接线检查：两处调用点还在，防止以后被顺手删掉 ──
 console.log('— 7. 接线检查 —');
 ok('折叠流程里调用了 normalizeMainDeepLink', /mainExtrasRaw = normalizeMainDeepLink\(mainExtrasRaw, children\)/.test(mcSrc));

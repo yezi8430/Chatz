@@ -1387,7 +1387,15 @@ function renderMarkdown(text) {
         'img','table','thead','tbody','tr','th','td','del','s','span'
       ],
       ALLOWED_ATTR: ['href','title','src','alt','class','align','target','rel'],
-      ALLOWED_URI_REGEXP: /^(?:https?|mailto|data:image\/)/i,
+      // ⚠️ 必须放行**同源相对路径**（以单个 `/` 开头）：
+      //    附件和「缓存封面图」的地址都是 `/attachments/xxx`（相对路径），
+      //    而自定义白名单只认 https?/mailto/data:image 时，DOMPurify 会把这些
+      //    src/href **直接删掉** —— img 标签还在、src 没了 ⇒ 裂图（实测踩到：
+      //    F12 里看到的就是 <img alt="封面">）。这同时也修好了「用户上传的附件
+      //    放进正文后网页端裂图」这个老毛病。
+      //    `(?!\/)` 是为了挡掉 `//evil.com/x.png` 这种**协议相对**地址：
+      //    那不是同源，而是"继承当前协议的外站"，等于绕过白名单。
+      ALLOWED_URI_REGEXP: /^(?:https?|mailto|data:image\/|\/(?!\/))/i,
       // 强制外链安全
       FORBID_TAGS: ['script','style','iframe','object','embed','form','input','button'],
       FORBID_ATTR: ['onerror','onload','onclick','onmouseover','onfocus','onblur','style'],
