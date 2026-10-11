@@ -201,6 +201,30 @@ const m11c = JSON.parse(r11c.extrasRaw);
 eq('恢复时带上本地地址（渲染用）', m11c.image, '/attachments/cached-abc.jpg');
 eq('恢复时带上原始地址（比较用）', m11c.imageSource, IMG_A);
 
+console.log('— 11c. 混合折叠（老子项外链 + 新子项已缓存）优先用本地副本 —');
+// 场景：昨晚发的通知还没缓存，今天开关打开后新增的集是本地图。两条折在一起时，
+// 主卡若照抄"第 1 条"（老的）就会留着外链 —— 源站一删图就裂，尽管本地副本就在附件目录里
+const EXT_A = IMG_A;
+const LOCAL_A = '/attachments/cached-deadbeef.jpg';
+const kidsMixFold = [
+  { extras: { image: EXT_A }, message: '🆕 新增\n\n![封面](' + EXT_A + ')' },
+  { extras: { image: LOCAL_A, imageSource: EXT_A }, message: '🆕 新增\n\n![封面](' + LOCAL_A + ')' },
+];
+const r11d = applyMainCover(JSON.stringify({ image: EXT_A, sender: { id: 1 } }), kidsMixFold[0].message, kidsMixFold);
+const m11d = JSON.parse(r11d.extrasRaw);
+eq('混合折叠 ⇒ 主卡改用本地缓存图', m11d.image, LOCAL_A);
+eq('混合折叠 ⇒ imageSource 记着原始外链', m11d.imageSource, EXT_A);
+ok('混合折叠 ⇒ 正文也换成本地地址', r11d.messageRaw.includes(LOCAL_A) && !r11d.messageRaw.includes(EXT_A));
+ok('混合折叠 ⇒ 其它键（sender）保留', m11d.sender && m11d.sender.id === 1);
+
+const kidsAllExt = [
+  { extras: { image: EXT_A }, message: '🆕 新增\n\n![封面](' + EXT_A + ')' },
+  { extras: { image: EXT_A }, message: '🆕 新增' },
+];
+const r11e = applyMainCover(JSON.stringify({ image: EXT_A }), '这条主卡正文没图', kidsAllExt);
+eq('没有本地副本 ⇒ 保持外链（现状不变）', JSON.parse(r11e.extrasRaw).image, EXT_A);
+ok('没有本地副本 ⇒ 正文从第 1 子项补回（原本就没图）', /!\[/.test(r11e.messageRaw));
+
 console.log('— 12. 接线检查（新增的调用点与前端口径）—');
 ok('折叠流程里调用了 applyMainCover', /const cover = applyMainCover\(mainExtrasRaw, mainMessageRaw, children\)/.test(mcSrc));
 ok('后端仍有 stripCoverKeys（不一致时要摘）', /function stripCoverKeys/.test(mcSrc));

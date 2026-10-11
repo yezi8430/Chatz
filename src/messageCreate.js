@@ -167,19 +167,44 @@ function applyMainCover(mainExtrasRaw, mainMessageRaw, children) {
     return { extrasRaw: mainExtrasRaw, messageRaw: mainMessageRaw };
   }
 
+  // ⚠️ 优先用**本地缓存过的**那张：折叠里可能混着「老子项（外链）+ 新子项（已缓存）」，
+  //    而第 1 条往往是老的 —— 直接抄它的 image 会让主卡留着外链，源站一删图就裂，
+  //    尽管同一张图的本地副本明明已经在附件目录里了。
+  //    判据：某个子项 image 是 /attachments/... 且它的 imageSource 与第 1 条的图同源。
+  const firstCover = typeof src.image === 'string' ? src.image : '';
+  const localTwin = (children || []).find(c => {
+    const e = c && c.extras;
+    return e && typeof e === 'object' && !Array.isArray(e)
+      && typeof e.image === 'string' && e.image.startsWith('/attachments/')
+      && (e.imageSource === firstCover || e.imageSource === src.imageSource);
+  });
+  const srcExtras = localTwin ? localTwin.extras : src;
+
   let merged = {};
   try {
     const parsed = mainExtrasRaw ? JSON.parse(mainExtrasRaw) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) merged = { ...parsed };
   } catch { merged = {}; }
   for (const k of ['image', 'imageSource', 'client::display', 'client::notification']) {
-    if (src[k] !== undefined) merged[k] = src[k];
+    if (srcExtras[k] !== undefined) merged[k] = srcExtras[k];
   }
 
-  // 正文：原消息文本里带着 markdown 图；只有当前正文确实没图时才补
+  // 正文：优先保住**本地缓存过**的那个版本。
+  //   · 主卡正文已经是本地地址 ⇒ 什么都不用做
+  //   · 正文是外链（老消息）而某个子项的正文已经是本地 ⇒ 换成它（同一部剧的通知，
+  //     正文结构一样；换过来才不会在源站删图后裂掉）
+  //   · 正文压根没图 ⇒ 从第 1 子项补回来（原行为）
   let messageRaw = mainMessageRaw;
-  if (typeof messageRaw === 'string' && !/!\[[^\]]*\]\([^)]*\)/.test(messageRaw)
-    && typeof first.message === 'string' && /!\[[^\]]*\]\([^)]*\)/.test(first.message)) {
+  const bodyHasImg = (t) => typeof t === 'string' && /!\[[^\]]*\]\([^)]*\)/.test(t);
+  const bodyIsLocal = (t) => typeof t === 'string' && t.includes('/attachments/cached-');
+  const localChild = (localTwin && bodyIsLocal(localTwin.message) ? localTwin : null)
+    || (children || []).find(c => c && bodyIsLocal(c.message));
+
+  if (bodyIsLocal(messageRaw)) {
+    // 已经是最优形态，不动
+  } else if (localChild) {
+    messageRaw = localChild.message;
+  } else if (!bodyHasImg(messageRaw) && bodyHasImg(first.message)) {
     messageRaw = first.message;
   }
 
