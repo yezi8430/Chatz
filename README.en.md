@@ -2,6 +2,8 @@
 
 > **中文**: [README.md](README.md) ｜ Docs in English: [docs/](docs/)
 
+<p align="center"><img src="docs/logo.png" width="360" alt="Chatz"></p>
+
 A self-hosted **notification routing hub**. Webhook in, routing rules decide, channels deliver,
 and state stays in sync across every client in real time.
 

@@ -2,6 +2,8 @@
 
 > **English**: [README.en.md](README.en.md) ｜ 文档英文版见 [docs/](docs/)
 
+<p align="center"><img src="docs/logo.png" width="360" alt="Chatz"></p>
+
 自托管的**通知路由中心**。Webhook 收消息，路由规则分发，频道订阅投递，多端状态实时同步。
 
 ```text
