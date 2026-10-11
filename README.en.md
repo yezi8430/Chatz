@@ -1,6 +1,6 @@
 # Chatz
 
-> **中文**: [README.md](README.md) ｜ Docs in English: [docs/](docs/)
+**English** | [简体中文](README.md)
 
 <p align="center"><img src="docs/logo.png" width="360" alt="Chatz"></p>
 
