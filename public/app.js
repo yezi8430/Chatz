@@ -1239,10 +1239,33 @@ function renderOpenLink(extras, cls) {
   return `<a class="msg-open-btn ${cls || ''}" href="${escapeHtml(u.href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(u.href)}">${escapeHtml(label)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg></a>`;
 }
 
+/**
+ * 取一条 extras 里的封面地址（优先级与客户端一致）。
+ * 服务端折叠时按「所有子项封面是否一致」决定主卡留不留图，前端用同一个函数判断，
+ * 两边口径必须一致 —— 见服务端 messageCreate.js 的 coverUrlOf / applyMainCover。
+ */
+function coverUrlFromExtras(extras) {
+  if (!extras || typeof extras !== 'object') return null;
+  if (extras.image) return extras.image;
+  const d = extras['client::display'];
+  if (d && d.url) return d.url;
+  const n = extras['client::notification'];
+  if (n && n.bigImageUrl) return n.bigImageUrl;
+  return null;
+}
+
 function renderAggChildren(m) {
   if (!m.aggCount || m.aggCount <= 1) return '';
   const children = m.aggChildren || [];
   const mainTitle = m.title || '';
+
+  // 主卡已经有封面时（= 所有子项封面一致，服务端会把它留在主卡），子项**不再重复渲染图片**：
+  // 同一部剧的每一集都是同一张海报，全塞进来只会把卡片拉得很长。
+  // 封面不一致（互不相关的东西被折到一起）时主卡没有图，子项就各显各的，信息不丢。
+  const mainCover = coverUrlFromExtras(m.extras);
+  const childCovers = children.map(c => coverUrlFromExtras(c && c.extras));
+  const hideChildImg = !!mainCover && childCovers.length > 0
+    && childCovers.every(u => u === mainCover);
 
   const items = children.slice().reverse().map((c, idx) => {
     const num = m.aggCount - idx;
@@ -1251,11 +1274,8 @@ function renderAggChildren(m) {
 
     let imgHtml = '';
     const extras = c.extras || {};
-    let imgUrl = null;
-    if (extras['image']) imgUrl = extras['image'];
-    else if (extras['client::display']?.url) imgUrl = extras['client::display'].url;
-    else if (extras['client::notification']?.bigImageUrl) imgUrl = extras['client::notification'].bigImageUrl;
-    if (imgUrl) imgHtml = `<img class="agg-child-img" src="${escapeHtml(imgUrl)}" alt="">`;
+    const imgUrl = coverUrlFromExtras(extras);
+    if (imgUrl && !hideChildImg) imgHtml = `<img class="agg-child-img" src="${escapeHtml(imgUrl)}" alt="">`;
 
     return `
       <div class="agg-child">

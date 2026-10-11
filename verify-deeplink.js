@@ -98,7 +98,86 @@ ok('没给 label ⇒ 回落显示域名', html6b.includes('jellyfin.example.com'
 const html6c = renderOpenLink({ url: 'https://x.com/a"><script>' });
 ok('url/label 均被 escape', !html6c.includes('<script>'));
 
-// ── 3. 接线检查：两处调用点还在，防止以后被顺手删掉 ──
+// ── 3. 折叠主卡的封面一致性（applyMainCover / allChildrenShareCover / coverUrlOf）──
+const s3 = mcSrc.indexOf('function coverUrlOf');
+const e3 = mcSrc.indexOf('function normalizeMainDeepLink');
+if (s3 < 0 || e3 < 0 || e3 <= s3) { console.error('切不出封面相关函数：标记变了'); process.exit(1); }
+const coverMod = new Function(
+  'stripCoverKeys',
+  'stripMarkdownImages',
+  mcSrc.slice(s3, e3) + '\nreturn { coverUrlOf, allChildrenShareCover, applyMainCover };'
+)(
+  // stripCoverKeys / stripMarkdownImages 是文件里既有的工具，按同语义给测试实现
+  (extras) => {
+    if (!extras || typeof extras !== 'object' || Array.isArray(extras)) return extras;
+    const out = { ...extras };
+    delete out.image;
+    for (const [key, field] of [['client::display', 'url'], ['client::notification', 'bigImageUrl']]) {
+      const obj = out[key];
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const copy = { ...obj };
+        delete copy[field];
+        if (Object.keys(copy).length > 0) out[key] = copy; else delete out[key];
+      }
+    }
+    return out;
+  },
+  (text) => !text ? text : String(text).replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+);
+const { coverUrlOf, allChildrenShareCover, applyMainCover } = coverMod;
+
+const IMG_A = 'https://jellyfin.example.com/Items/aaa/Images/Primary';
+const IMG_B = 'https://jellyfin.example.com/Items/bbb/Images/Primary';
+const BODY_IMG = (u) => '🆕 新增媒体\n📺 进击的巨人 S01E03\n\n![封面](' + u + ')';
+
+console.log('— 8. 封面取值优先级 —');
+eq('image 优先', coverUrlOf({ image: IMG_A, 'client::display': { url: IMG_B } }), IMG_A);
+eq('回落 client::display.url', coverUrlOf({ 'client::display': { url: IMG_A } }), IMG_A);
+eq('回落 bigImageUrl', coverUrlOf({ 'client::notification': { bigImageUrl: IMG_A } }), IMG_A);
+eq('都没有 → null', coverUrlOf({ sender: { id: 1 } }), null);
+eq('extras 是数组 → null', coverUrlOf([1, 2]), null);
+
+console.log('— 9. 封面一致 ⇒ 主卡留图（extras 图键 + 正文 markdown 图都补回来）—');
+const mainStripped = JSON.stringify({ sender: { id: 1 } });          // 上一轮被摘过
+const kidsSameCover = [
+  { extras: { image: IMG_A }, message: BODY_IMG(IMG_A) },
+  { extras: { image: IMG_A }, message: BODY_IMG(IMG_A) },
+];
+const r9 = applyMainCover(mainStripped, '🆕 新增媒体\n📺 进击的巨人 S01E03', kidsSameCover);
+ok('一致 ⇒ 主卡 extras.image 补回', JSON.parse(r9.extrasRaw).image === IMG_A);
+ok('一致 ⇒ sender/app 等其它键保留', JSON.parse(r9.extrasRaw).sender && JSON.parse(r9.extrasRaw).sender.id === 1);
+ok('一致 ⇒ 正文里的 markdown 图补回（WebUI 靠它出图）', r9.messageRaw.includes('![封面](' + IMG_A + ')'));
+
+console.log('— 10. 封面不一致 ⇒ 主卡两通道都摘干净 —');
+const mainWithCover = JSON.stringify({
+  image: IMG_A, sender: { id: 1 },
+  'client::display': { url: IMG_A, contentType: 'text/markdown' },
+  'client::notification': { bigImageUrl: IMG_A },
+});
+const kidsDiffCover = [
+  { extras: { image: IMG_A } },
+  { extras: { image: IMG_B } },
+];
+const r10 = applyMainCover(mainWithCover, BODY_IMG(IMG_A), kidsDiffCover);
+const m10 = JSON.parse(r10.extrasRaw);
+ok('不一致 ⇒ extras.image 摘掉', !('image' in m10));
+ok('不一致 ⇒ client::display.url 摘掉（contentType 保留）', !m10['client::display'] || !m10['client::display'].url);
+ok('不一致 ⇒ bigImageUrl 摘掉', !m10['client::notification'] || !m10['client::notification'].bigImageUrl);
+ok('不一致 ⇒ sender 保留', m10.sender && m10.sender.id === 1);
+ok('不一致 ⇒ 正文里的 markdown 图也摘掉', !r10.messageRaw.includes('!['));
+
+console.log('— 11. 封面混着来 / 空封面也算不一致 —');
+const r11a = applyMainCover(mainWithCover, BODY_IMG(IMG_A), [{ extras: { image: IMG_A } }, { extras: { sender: {} } }]);
+ok('有图+无图混着 ⇒ 主卡摘图', !('image' in JSON.parse(r11a.extrasRaw)));
+const r11b = applyMainCover(mainWithCover, BODY_IMG(IMG_A), [{ extras: { sender: {} } }, { extras: { sender: {} } }]);
+ok('全都没有封面 ⇒ 摘掉主卡残留的图', !('image' in JSON.parse(r11b.extrasRaw)));
+
+console.log('— 12. 接线检查（新增的调用点与前端口径）—');
+ok('折叠流程里调用了 applyMainCover', /const cover = applyMainCover\(mainExtrasRaw, mainMessageRaw, children\)/.test(mcSrc));
+ok('后端仍有 stripCoverKeys（不一致时要摘）', /function stripCoverKeys/.test(mcSrc));
+ok('前端有 coverUrlFromExtras 且子项据此决定是否画图', /const hideChildImg = !!mainCover/.test(appSrc) && /if \(imgUrl && !hideChildImg\)/.test(appSrc));
+
+// ── 4. 接线检查：两处调用点还在，防止以后被顺手删掉 ──
 console.log('— 7. 接线检查 —');
 ok('折叠流程里调用了 normalizeMainDeepLink', /mainExtrasRaw = normalizeMainDeepLink\(mainExtrasRaw, children\)/.test(mcSrc));
 // ⚠️ 模板字面量里调用是 ${renderAggChildren(m)}，(m) 后面紧跟 `}` 不是换行 —— 别忘了 \}

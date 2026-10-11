@@ -1159,12 +1159,15 @@ curl -X POST http://<host>:20010/channel/2/icon \
      窗口量的是「上次折叠时间」，只看它的话一条老消息会被无限折叠（滚动续命）：
      位置永远不上浮、还会把最早的子条目挤出 `aggChildren`
    - 命中则更新已有消息的 aggCount 和 aggChildren
-   - **首次折叠**时会把原消息（第 1 条）自己补进 `aggChildren` 的第 1 位，并清掉主卡上的「图」：
-     · `extras` 里只摘图相关键 —— `image` / `client::display.url` / `client::notification.bigImageUrl`
-       （`extras.sender` / `extras.app` 一律保留，主卡还要显示发送者）
-     · 正文里的 markdown 图片 `![alt](url)` 也一并清掉（**两个通道的图来源不同**：客户端读 `extras.image`，
-       而 WebUI 会把正文渲染出的第一张图提升成整张卡片的背景）
-     ⇒ 聚合主卡只显示标题 + `×N`，**不再顶着「第 1 条」的封面误导人**；图和原文都完整保留在第 1 个子项里
+   - **首次折叠**时会把原消息（第 1 条）自己补进 `aggChildren` 的第 1 位
+   - **主卡的封面按「子项一致性」决定**（每次折叠都重算，可正可反）：
+     · 所有子项封面**相同**（Jellyfin 插件按作品分组后就是这样 —— 同一部剧的集共用剧海报）
+       ⇒ 主卡**保留这一张**，一眼认得出是哪部作品；子项的重复封面由前端省略，卡片不会被撑长
+     · **不一致**（固定标题把互不相关的东西折进一条）⇒ 主卡两处图都摘掉：
+       `extras` 里的图键（`image` / `client::display.url` / `client::notification.bigImageUrl`，
+       只摘图相关键，`extras.sender` / `extras.app` 一律保留）**和**正文里的 markdown 图
+       （`![alt](url)`；**两个通道的图来源不同**：客户端读 `extras.image`，WebUI 读正文第一张图）
+       ⇒ 聚合主卡只显示标题 + `×N`，**不会顶着「第 1 条」的封面误导人**；各子项的封面原样保留
 6. 落库
 7. 广播给频道订阅者
 ```

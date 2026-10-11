@@ -1232,16 +1232,20 @@ Processing pipeline:
      message would be folded forever (rolling renewal): it would never float back to the top and it
      would push the earliest child out of `aggChildren`
    - on a hit, update the existing message's aggCount and aggChildren
-   - on the **first fold**, the original message (#1) is itself prepended to `aggChildren`, and the
-     image is stripped from the parent card:
-     · only image-related keys are removed from `extras` — `image` / `client::display.url` /
-       `client::notification.bigImageUrl` (`extras.sender` / `extras.app` are always kept; the
-       parent card still shows the sender)
-     · markdown images `![alt](url)` in the body are stripped too (**the two channels read images from
-       different places**: the client reads `extras.image`, while the WebUI lifts the first image
-       rendered from the body into the whole card's background)
-     ⇒ an aggregated parent card shows only the title + `×N`, so it no longer misleads by showing
-       the cover of "#1"; image and original text are preserved intact in the first child
+   - on the **first fold**, the original message (#1) is itself prepended to `aggChildren`
+   - the **parent card's cover follows "child consistency"** (re-evaluated on every fold, both ways):
+     · all children share the **same cover** (which is what happens once the Jellyfin plugin groups
+       by work — every episode of a series reuses the series poster)
+       ⇒ the parent card **keeps that one image**, so the work is recognisable at a glance; the
+       duplicated per-child images are omitted by the UI so the card does not get long
+     · covers **differ** (a fixed title folding unrelated items into one)
+       ⇒ both image channels are stripped from the parent card: the image keys inside `extras`
+       (`image` / `client::display.url` / `client::notification.bigImageUrl` — only image-related
+       keys, `extras.sender` / `extras.app` are always kept) **and** the markdown image in the body
+       (**the two channels read images from different places**: the client reads `extras.image`,
+       while the WebUI lifts the first image rendered from the body into the card background)
+       ⇒ an aggregated parent card shows only the title + `×N`, so it never misleads by showing
+       the cover of "#1"; every child keeps its own cover
 6. Persist
 7. Broadcast to the channel's subscribers
 ```

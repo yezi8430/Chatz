@@ -100,6 +100,85 @@ function findAggregateTarget(channelId, appid, title) {
   `).get(channelId, appid, title, since, lifetimeFloor);
 }
 
+// ── 折叠主卡的封面（extras 图键 + 正文里的 markdown 图）──────────────
+//
+// 规则和深链一致：**看子项一致不一致**。
+//   · 所有子项封面相同（Jellyfin 插件按作品分组后就是这样：同一部剧的集
+//     用的是同一张剧海报）⇒ 主卡保留这张海报 —— 一眼能认出是哪部作品；
+//   · 不一致（固定标题把互不相关的东西折进一条）⇒ 全部摘掉，
+//     否则主卡永远挂着第 1 条的图，严重误导；
+//   · 混着来（有的有图有的没有）也算不一致 ⇒ 摘。
+//
+// ⚠️ 两个通道都要处理（原因见 stripMarkdownImages 的注释）：
+//    · extras 里的图键 → 客户端（Android）读 `extras.image`
+//    · 正文里的 `![alt](url)` → WebUI 读正文渲染出来的第一张图
+//   不一致时两边一起摘；一致时两边都要**补回来**（因为可能是上一轮摘过、这一轮才凑齐的）。
+//
+// 独立成函数便于离线 verify 抠出来测：不用 db、不用网络。
+function coverUrlOf(extras) {
+  if (!extras || typeof extras !== 'object' || Array.isArray(extras)) return null;
+  if (typeof extras.image === 'string' && extras.image) return extras.image;
+  const d = extras['client::display'];
+  if (d && typeof d === 'object' && !Array.isArray(d) && typeof d.url === 'string' && d.url) return d.url;
+  const n = extras['client::notification'];
+  if (n && typeof n === 'object' && !Array.isArray(n) && typeof n.bigImageUrl === 'string' && n.bigImageUrl) return n.bigImageUrl;
+  return null;
+}
+
+function allChildrenShareCover(children) {
+  const urls = (children || []).map(c => coverUrlOf(c && c.extras));
+  return urls.length > 0 && urls.every(u => u !== null && u === urls[0]);
+}
+
+/**
+ * 决定折叠主卡的封面去留，返回 { extrasRaw, messageRaw }。
+ * 每次都重新判断（可正可反）：首次折叠时一致就留着，后续折叠导致不一致就摘掉；
+ * 反过来「先不一致、后来一致」也能把图补回来（图源就是第 1 个子项 —— 它本来就是原消息）。
+ */
+function applyMainCover(mainExtrasRaw, mainMessageRaw, children) {
+  const sameCover = allChildrenShareCover(children);
+
+  if (!sameCover) {
+    let raw = mainExtrasRaw;
+    try {
+      const parsed = mainExtrasRaw ? JSON.parse(mainExtrasRaw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const stripped = stripCoverKeys(parsed);
+        raw = stripped ? JSON.stringify(stripped) : null;
+      }
+    } catch { /* 坏 JSON 就别动它，保持原样 */ }
+    return {
+      extrasRaw: raw,
+      messageRaw: stripMarkdownImages(mainMessageRaw),
+    };
+  }
+
+  // 一致 ⇒ 确保主卡两个通道都带着那张图
+  const first = (children && children[0]) || {};
+  const src = first.extras;
+  if (!src || typeof src !== 'object' || Array.isArray(src)) {
+    return { extrasRaw: mainExtrasRaw, messageRaw: mainMessageRaw };
+  }
+
+  let merged = {};
+  try {
+    const parsed = mainExtrasRaw ? JSON.parse(mainExtrasRaw) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) merged = { ...parsed };
+  } catch { merged = {}; }
+  for (const k of ['image', 'client::display', 'client::notification']) {
+    if (src[k] !== undefined) merged[k] = src[k];
+  }
+
+  // 正文：原消息文本里带着 markdown 图；只有当前正文确实没图时才补
+  let messageRaw = mainMessageRaw;
+  if (typeof messageRaw === 'string' && !/!\[[^\]]*\]\([^)]*\)/.test(messageRaw)
+    && typeof first.message === 'string' && /!\[[^\]]*\]\([^)]*\)/.test(first.message)) {
+    messageRaw = first.message;
+  }
+
+  return { extrasRaw: JSON.stringify(merged), messageRaw };
+}
+
 // ── 主卡深链一致性兜底（extras.url / extras.urlLabel）──────────────
 //
 // extras.url 是「点通知直达条目详情页」的深链（如 Jellyfin 插件的 extras）。
@@ -365,12 +444,12 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
 
     // 主卡片的 message/extras 装的是**第 1 条**的内容（折叠只更新 agg_* 三列，见文件头说明），
     // 而第 1 条**不在** agg_children 里 —— children 是从第 2 条开始攒的。
-    // 两个 *.Raw 默认原样写回；只有首次折叠才应该动它们。
+    // 两个 *.Raw 默认原样写回；封面/深链的一致性处理在下面（children 拼齐之后）。
     let mainExtrasRaw = aggTarget.extras;
     let mainMessageRaw = aggTarget.message;
     if (children.length === 0) {
-      // ★ 首次折叠：把第 1 条**原样**补进 children 的第 1 位。
-      //   因为紧接着要把主卡上的图清掉，不补的话第 1 条的封面就**再也看不到**了。
+      // ★ 首次折叠：把第 1 条**原样**补进 children 的第 1 位 ——
+      //   主卡的图会按「一致性」规则被摘掉（不一致时），不补的话第 1 条的封面就**再也看不到**了。
       //   顺带把编号补连续：展开后是 1..N（原来是 2..N，第 1 条只以主卡形式存在）。
       let mainExtras = null;
       try { mainExtras = aggTarget.extras ? JSON.parse(aggTarget.extras) : null; } catch { mainExtras = null; }
@@ -381,15 +460,6 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
         priority: aggTarget.priority,
         extras: mainExtras,
       });
-
-      // ★ 聚合主卡不放图（只显示标题 + ×N，要看图去展开的子项里看）。
-      //   动机：标题固定的应用（如插件默认的 `[Jellyfin] 新增媒体`）会把几天里
-      //   互不相关的条目全折进一条，主卡却永远挂着**第 1 条**的封面 ⇒ 严重误导。
-      //   ⚠️ 两个通道都要清（原因见 stripMarkdownImages 的注释）；只清 extras.image 的话网页端没效果。
-      //   ⚠️ 只摘「图」相关的键，**必须保留 extras.sender / extras.app** —— 主卡还要显示发送者/应用。
-      const stripped = stripCoverKeys(mainExtras);
-      mainExtrasRaw = stripped ? JSON.stringify(stripped) : null;
-      mainMessageRaw = stripMarkdownImages(aggTarget.message);
     }
 
     children.push({
@@ -400,6 +470,15 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
       extras: ctx.message.extras || null,
     });
     if (children.length > 100) children = children.slice(-100);
+
+    // ── 主卡封面的一致性处理 ──
+    //   所有子项封面相同 ⇒ 主卡留一张（同一部作品，一眼认得出）；
+    //   不一致 ⇒ 全摘（否则主卡永远挂着第 1 条的图，误导）。详见 applyMainCover。
+    {
+      const cover = applyMainCover(mainExtrasRaw, mainMessageRaw, children);
+      mainExtrasRaw = cover.extrasRaw;
+      mainMessageRaw = cover.messageRaw;
+    }
 
     // ── 主卡深链一致性兜底（extras.url / extras.urlLabel）──
     //   只有所有子项的 url 完全一致才保留主卡 url，否则摘掉 —— 宁缺毋错。
