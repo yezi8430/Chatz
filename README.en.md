@@ -15,6 +15,19 @@ and state stays in sync across every client in real time.
 └──────────────────────────────────────────────────────────┘
 ```
 
+## Related projects
+
+Chatz ships as three independent repositories. **The server is required**; the other two are optional —
+if you only use the web UI, the server alone is enough:
+
+| Component | Repository | License | Notes |
+|---|---|---|---|
+| **Server** (this repo) | [yezi8430/Chatz](https://github.com/yezi8430/Chatz) | MIT | Node.js + SQLite, web UI included |
+| **Android client** | [yezi8430/Chatz_Android](https://github.com/yezi8430/Chatz_Android) | MIT | Native app; also works with Gotify / ntfy |
+| **Jellyfin plugin** | [yezi8430/jellyfin-plugin-chatz](https://github.com/yezi8430/jellyfin-plugin-chatz) | GPL-2.0 | Pushes Jellyfin playback / library events into Chatz |
+
+> The plugin is GPL only because it references Jellyfin's GPL packages, so its license has to follow. Server and client are both MIT.
+
 ## UI at a glance
 
 ![Chatz web inbox](docs/screenshots/web-inbox.png)
@@ -310,8 +323,9 @@ Full parameters, response fields and the WebSocket protocol live in the
 3. Client Token: `AUTH_TOKEN` from `.env`, or the user's device token
 4. Tap "Test" → it should succeed
 
-**Android, option B: your own client** — implement the WebSocket protocol documented in
-[docs/API.md](docs/API.md).
+**Android, option B: the official Chatz client** — [yezi8430/Chatz_Android](https://github.com/yezi8430/Chatz_Android).
+A native app where channels, read-state sync, aggregation and tags all work, and it also speaks Gotify / ntfy.
+To write your own, follow the WebSocket protocol in [docs/API.md](docs/API.md).
 
 **Command line** — the `curl` calls in "Send a message" above.
 

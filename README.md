@@ -14,6 +14,19 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
+## 相关项目
+
+Chatz 由三个各自独立的仓库组成。**服务端是必须的**，另外两个按需取用 ——
+只用网页端的话，装服务端一个就够了：
+
+| 组件 | 仓库 | 许可 | 说明 |
+|---|---|---|---|
+| **服务端**（本仓库） | [yezi8430/Chatz](https://github.com/yezi8430/Chatz) | MIT | Node.js + SQLite，自带网页端 |
+| **Android 客户端** | [yezi8430/Chatz_Android](https://github.com/yezi8430/Chatz_Android) | MIT | 原生 App；也兼容 Gotify / ntfy |
+| **Jellyfin 插件** | [yezi8430/jellyfin-plugin-chatz](https://github.com/yezi8430/jellyfin-plugin-chatz) | GPL-2.0 | 把 Jellyfin 的播放 / 媒体库事件推到 Chatz |
+
+> 插件单独用 GPL 是因为它引用了 Jellyfin 的 GPL 包，许可得跟着走。服务端与客户端都是 MIT。
+
 ## 界面预览
 
 ![Chatz 网页端收件箱](docs/screenshots/web-inbox.png)
@@ -296,7 +309,9 @@ curl -X POST http://<host>:20010/message \
 3. Client Token：`.env` 里的 `AUTH_TOKEN` 或用户设备 Token
 4. 点「测试」→ 应该显示成功
 
-**Android 方案 B：自研客户端** —— 参考 [docs/API.md](docs/API.md) 的 WebSocket 协议实现。
+**Android 方案 B：Chatz 官方客户端** —— [yezi8430/Chatz_Android](https://github.com/yezi8430/Chatz_Android)，
+原生 App，频道、已读同步、聚合、标签都能用，顺带也兼容 Gotify / ntfy。
+想自己写就参考 [docs/API.md](docs/API.md) 里的 WebSocket 协议。
 
 **命令行** —— 就是上面「发一条消息」那几个 `curl`。
 
