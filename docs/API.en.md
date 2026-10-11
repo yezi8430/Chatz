@@ -2283,8 +2283,24 @@ Carries `ownerId` / `ownerName`; `conditions` / `actions` are already parsed int
 | Field | Meaning |
 |---|---|
 | `extras.image` | Cover image URL. Priority: `image` → `client::display.url` → `client::notification.bigImageUrl` |
+| `extras.url` | **Deep link**. The web UI renders it as an "Open →" button below the body; one click goes straight to the target page |
+| `extras.urlLabel` | Button text, decided by the sender (never translated); falls back to the URL's host when omitted |
 | `extras.sender` | **Sender snapshot**, see below |
 | `extras.app` | **App snapshot**, see below |
+
+**Rules for the deep link (`extras.url`):**
+
+- Only `http://` / `https://` are accepted (the web UI validates with URL parsing; malformed
+  addresses simply don't render a button). The button carries
+  `target="_blank" rel="noopener noreferrer"`, and the destination host is always visible —
+  anti-phishing by design
+- **Folded main cards get a consistency check**: the main card keeps its button only when
+  **every child inside the fold has the exact same url**; otherwise (e.g. a fixed title folding
+  unrelated items into one) the url is stripped — better absent than wrong. Each child keeps its
+  own url, so expanding still gives per-item links
+  ⇒ for a correct main-card button, make the title distinguish per "work/object" (the Jellyfin
+  plugin's default title includes `{workName}` for exactly this reason)
+- Android does not consume this field yet (a notification Action button is planned)
 
 > **Should the image go in the body or in `extras`? Both.**
 > The two channels read images from different places: the client (Android) reads `extras.image`,

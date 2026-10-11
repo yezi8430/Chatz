@@ -1188,6 +1188,7 @@ function renderCard(m) {
       ${renderReplyQuote(m)}
       <div class="msg-body" data-msg-id="${m.id}">${bodyHtml}</div>
       ${renderAggChildren(m)}
+      ${renderOpenLink(m.extras)}
       <div class="msg-footer">
         ${chName ? `<span class="msg-app-tag">${escapeHtml(chName)}</span>` : ''}
         <span class="msg-prio-tag ${pc}">${chatzT('优先级')} ${m.priority}</span>
@@ -1209,6 +1210,33 @@ function renderCard(m) {
  */
 function stripImageMarkdown(text) {
   return String(text || '').replace(/!\[.*?\]\(.*?\)/g, '').trim();
+}
+
+/**
+ * 深链按钮（extras.url / extras.urlLabel）。
+ *
+ * 发送方（如 Jellyfin 插件）在 extras 里带一个详情页地址，这里渲染成
+ * 「在 Jellyfin 中打开 →」这样的小按钮 —— 点通知直达目标页面，而不是光看着路径干瞪眼。
+ *
+ * 安全边界：
+ *  · url 是**发送方可控输入** ⇒ 只接受 http/https（堵掉 javascript: 这类注入），
+ *    用 URL 解析一遍而不是正则，畸形 URL 直接不渲染；
+ *  · 文案 urlLabel 也是发送方的 ⇒ escapeHtml 后再上屏；
+ *  · target="_blank" 必须配 rel="noopener noreferrer"，别把 window.opener 泄露给目标页。
+ * label 由发送方说了算（服务端/前端都不翻译），没给就回落显示域名 ——
+ * 这样按钮上永远能看到「到底会跳去哪」，钓鱼链接一眼穿帮。
+ */
+function renderOpenLink(extras, cls) {
+  if (!extras || typeof extras !== 'object') return '';
+  const raw = extras.url;
+  if (typeof raw !== 'string' || !raw.trim()) return '';
+  let u;
+  try { u = new URL(raw); } catch { return ''; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+  const label = (typeof extras.urlLabel === 'string' && extras.urlLabel.trim())
+    ? extras.urlLabel.trim()
+    : u.host;
+  return `<a class="msg-open-btn ${cls || ''}" href="${escapeHtml(u.href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(u.href)}">${escapeHtml(label)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg></a>`;
 }
 
 function renderAggChildren(m) {
@@ -1239,6 +1267,7 @@ function renderAggChildren(m) {
         ${title ? `<div class="agg-child-title">${escapeHtml(title)}</div>` : ''}
         <div class="agg-child-body">${renderMarkdown(stripImageMarkdown(c.message))}</div>
         ${imgHtml}
+        ${renderOpenLink(extras, 'agg-child-open')}
       </div>
     `;
   }).join('');

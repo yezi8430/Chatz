@@ -2164,8 +2164,21 @@ HSTS_INCLUDE_SUBDOMAINS=true   # 可选，确认所有子域都能 HTTPS 再开
 | 字段 | 说明 |
 |---|---|
 | `extras.image` | 封面图 URL。优先级：`image` → `client::display.url` → `client::notification.bigImageUrl` |
+| `extras.url` | **深链**。网页端会把它渲染成「打开 →」按钮（放在正文之后），点一下直达目标页面 |
+| `extras.urlLabel` | 深链按钮的文字，发送方说了算（不翻译）；没给就显示 url 的域名 |
 | `extras.sender` | **发送者快照**，见下 |
 | `extras.app` | **应用快照**，见下 |
+
+**深链（`extras.url`）的规矩：**
+
+- 只接受 `http://` / `https://`（网页端用 URL 解析校验，畸形地址不渲染按钮），按钮自带
+  `target="_blank" rel="noopener noreferrer"`，文字上永远能看到将要跳去哪 —— 防钓鱼
+- **聚合折叠时主卡的 url 会做一致性兜底**：只有折叠内**所有子项的 url 完全一致**，主卡才保留
+  这个按钮；不一致（比如固定标题把互不相关的条目折进了一条）就摘掉 —— 宁缺毋错。
+  各子项的 url 原样保留，展开后每条各跳各的
+  ⇒ 想让折叠主卡也有正确按钮，就让标题按「作品/对象」区分（Jellyfin 插件的默认标题带
+  `{workName}` 就是这个原因）
+- Android 端目前不消费这个字段（通知 Action 按钮在计划里）
 
 > **图片到底放正文还是放 `extras`？两个都得放。**
 > 两个通道取图的位置不一样：客户端（Android）读 `extras.image`，而 **WebUI 读正文渲染出来的第一张图**

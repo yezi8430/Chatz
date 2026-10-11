@@ -1252,6 +1252,36 @@ body::before {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 13px;
 }
+
+/* ── 深链按钮（extras.url / extras.urlLabel）────────────────
+   发送方（如 Jellyfin 插件）给的「直达详情页」跳转，渲染成小胶囊。
+   hover 只改颜色/背景/边框 —— 不做位移缩放（全局约定），
+   位置放在正文/合并子项之后、footer 之前，像预览稿里的字段卡片。 */
+.msg-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 12px;
+  padding: 5px 12px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+.msg-open-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
+.msg-open-btn:hover { background: var(--accent); color: #fff; }
+[data-theme="dark"] .msg-open-btn:hover { color: #14141a; }
+/* 合并子项里的同款按钮：更小一号，别抢正文 */
+.msg-open-btn.agg-child-open { margin: 8px 0 0; padding: 3px 10px; font-size: 11px; }
 .msg-body pre {
   background: rgba(120, 120, 140, 0.12);
   padding: var(--sp-3);

@@ -100,6 +100,41 @@ function findAggregateTarget(channelId, appid, title) {
   `).get(channelId, appid, title, since, lifetimeFloor);
 }
 
+// ── 主卡深链一致性兜底（extras.url / extras.urlLabel）──────────────
+//
+// extras.url 是「点通知直达条目详情页」的深链（如 Jellyfin 插件的 extras）。
+// 折叠主卡该显示哪个 url？只有**所有子项的 url 完全一致**时才有正确答案：
+//   · Jellyfin 插件默认标题带 {workName}/{seriesName} ⇒ 同一条折叠内全是同一部作品
+//     ⇒ 各子项 url 一致 ⇒ 主卡 url（来自第 1 条）本来就对，原样返回，什么都不用做；
+//   · 若发送方自定义标题造成「互不相关的条目折进一条」，各子项 url 不同，
+//     主卡上无论放哪一条的 url 都是错的 ⇒ 摘掉 url/urlLabel，宁缺毋错。
+//
+// ⚠️ 只影响主卡 —— children 里各子项的 url 原样保留，展开后每条各跳各的。
+// ⚠️ 有 url 的子项和没 url 的子项混在一起也算「不一致」（比如 Jellyfin 通知和
+//    别的应用的消息折到了同一条），照样摘 —— 主卡深链要么全对、要么没有。
+// ⚠️ 主卡 extras 本身坏了（非法 JSON）就原样返回，别把人家本来能显示的消息搞挂。
+//
+// 独立成函数就是为了能被离线 verify 抠出来测：不用 db、不用网络。
+function normalizeMainDeepLink(mainExtrasRaw, children) {
+  if (!mainExtrasRaw) return mainExtrasRaw;
+
+  const urls = (children || []).map(c => (c && c.extras && typeof c.extras === 'object' && !Array.isArray(c.extras))
+    ? (typeof c.extras.url === 'string' && c.extras.url ? c.extras.url : null)
+    : null);
+  const allSameUrl = urls.length > 0 && urls.every(u => u !== null && u === urls[0]);
+  if (allSameUrl) return mainExtrasRaw;
+
+  try {
+    const me = JSON.parse(mainExtrasRaw);
+    if (me && typeof me === 'object' && !Array.isArray(me) && (me.url != null || me.urlLabel != null)) {
+      delete me.url;
+      delete me.urlLabel;
+      return JSON.stringify(me);
+    }
+  } catch { /* 主卡 extras 坏了就别碰它，保持原样 */ }
+  return mainExtrasRaw;
+}
+
 function broadcastAggregated(target, ctx) {
   const updated = db.prepare('SELECT * FROM messages WHERE id = ?').get(target.id);
   const msgObj = rowToMsg(updated);
@@ -365,6 +400,11 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
       extras: ctx.message.extras || null,
     });
     if (children.length > 100) children = children.slice(-100);
+
+    // ── 主卡深链一致性兜底（extras.url / extras.urlLabel）──
+    //   只有所有子项的 url 完全一致才保留主卡 url，否则摘掉 —— 宁缺毋错。
+    //   详见 normalizeMainDeepLink 的注释。
+    mainExtrasRaw = normalizeMainDeepLink(mainExtrasRaw, children);
 
     db.prepare(`
       UPDATE messages
