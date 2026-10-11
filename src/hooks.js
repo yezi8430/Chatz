@@ -1,7 +1,9 @@
 const express = require('express');
+const path = require('path');
 const db = require('./db');
 const { renderTemplate } = require('./template');
 const { createMessage } = require('./messageCreate');
+const { applyImageCache } = require('./imageCache');
 const { HOP_HEADER } = require('./routing');
 const { rateLimit } = require('./rateLimit');
 const audit = require('./audit');
@@ -9,6 +11,10 @@ const { tokenPrefix } = require('./tokenGen');
 const i18n = require('./serverI18n');
 
 const router = express.Router();
+
+// 附件目录（缓存封面图要往里写）。与 index.js / channels.js 同一套算法：
+// DB_PATH 的目录就是 data 目录；容器里默认 /app/data
+const ATTACHMENTS_DIR = path.join(process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : './data', 'attachments');
 
 // ============================================================
 // 模板预览（无鉴权，但限速）
@@ -168,7 +174,7 @@ router.post('/hook/:token',
 
     res.json({ received: true, appid: app.id });
 
-    setImmediate(() => {
+    setImmediate(async () => {
       try {
         const data = parseBody(req);
         const isJSON = data._isJSON;
@@ -209,6 +215,27 @@ router.post('/hook/:token',
         }
 
         if (!final.message || !final.message.trim()) return;
+
+        // ── 缓存封面图（应用级开关）──
+        // 把 extras.image 指的外链图片抓下来存成本地附件（插件那侧的热链封面
+        // 会在媒体被删后 404，缓存一份就永久可看）。
+        // ⚠️ 必须在 createMessage **之前**做：消息一入库就定型了，事后回改还得
+        //    再广播一遍更新，多一套机制。抓取失败/没开开关时原样返回，不影响消息。
+        if (app.cache_images && final.extras && typeof final.extras === 'object') {
+          try {
+            const cached = await applyImageCache({
+              app,
+              extras: final.extras,
+              message: final.message,
+              attachmentsDir: ATTACHMENTS_DIR,
+            });
+            final.extras = cached.extras;
+            final.message = cached.message;
+          } catch (e) {
+            // 缓存只是"锦上添花"，任何意外都不该拦住消息本身
+            i18n.warn('imageCache.writeFailed', { name: '(unexpected)', msg: e.message });
+          }
+        }
 
         if (typeof final.message !== 'string') final.message = JSON.stringify(final.message);
         const p = parseInt(final.priority, 10);

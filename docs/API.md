@@ -1325,8 +1325,23 @@ curl "http://<host>:20010/message/search?q=告警" \
 | token | Webhook URL 里用的那段。**10 位大小写字母+数字**（如 `aB3xK9mQ2p`），全局唯一。旧的 48 位 hex 会在启动迁移时自动换成新格式 |
 | channelId | 应用默认发到哪个频道 |
 | template | 消息模板（JSON 字符串），见 [TEMPLATE.md](TEMPLATE.md) |
+| cacheImages | **缓存封面图**开关（布尔）。开启后，本应用消息里 `extras.image` 指向的外链图片会被抓下来存成本地附件 —— 源站（如 Jellyfin）删掉媒体后，老通知的封面依然能显示。默认关 |
 | internal | 恒为 `false`（为兼容 Gotify 客户端保留） |
 | defaultPriority | 恒为 `0`（同上，未实现） |
+
+> **`cacheImages` 的行为细节**（实现见 `src/imageCache.js`）：
+> · 抓取在**入库前同步完成**（超时 5 秒封顶），失败就保持外链、消息照发
+> · 只接受 `http(s)`，响应必须是**真图片**（按魔数识别 png/jpg/gif/webp；**svg 一律拒绝**
+>   —— 附件目录和 WebUI 同源，可内联的 svg 等于存储型 XSS）
+> · 单张上限 5MB，与附件共用同一个 500MB 目录总上限（`ATTACHMENT_MAX_TOTAL_MB`）
+> · 按 URL 的 sha1 命名（`cached-<sha1>.<ext>`）⇒ 同一张图被多条消息引用时**只存一份**；
+>   删消息时按引用计数回收（还有别的消息引用就不删）
+> · 成功时会同时改写 `extras.image`、`client::display.url`、`client::notification.bigImageUrl`
+>   和**正文里的图片 URL**（两个通道的图来源不同，都要换），并把原始外链存进 `extras.imageSource`
+>
+> ⚠️ **安全提示**：开启后，持有该应用 Token 的人就能让服务端去 GET 任意 `http(s)` 地址
+> （SSRF 面，跟着重定向走）。自托管场景下 Token 在管理员手里，风险可控；介意就别开，
+> 或用路由规则/防火墙限制容器出网。
 
 > 🔒 **这个接口会返回明文 token，所以历史上要求管理员权限。**
 > 2026-09-30 之前它只要求登录、不看角色 —— 注册是开放的，等于任何人注册个账号
@@ -1347,7 +1362,8 @@ curl "http://<host>:20010/message/search?q=告警" \
   "name": "GitHub",
   "description": "GitHub 通知",
   "channel_id": 1,
-  "template": null
+  "template": null,
+  "cache_images": false
 }
 
 // 响应：同 GET 列表，含自动生成的 token
@@ -1361,7 +1377,7 @@ id 最小的频道（默认频道 id = 1）。
 
 ### `PATCH /application/:id` 登录
 
-支持修改：`name`、`description`、`image`、`channel_id`、`template`。
+支持修改：`name`、`description`、`image`、`channel_id`、`template`、`cache_images`。
 
 ### `DELETE /application/:id` 登录
 
@@ -2167,8 +2183,11 @@ HSTS_INCLUDE_SUBDOMAINS=true   # 可选，确认所有子域都能 HTTPS 再开
 | 字段 | 说明 |
 |---|---|
 | `extras.image` | 封面图 URL。优先级：`image` → `client::display.url` → `client::notification.bigImageUrl` |
+| `extras.imageSource` | **缓存封面图**开启时才有：`image` 被换成本地 `/attachments/...` 后的**原始外链**。聚合主卡的「封面一致性」比较用它（渲染仍用 `image`），这样「一条缓存成功、一条抓取失败」不会把同一张图判成不一致 |
 | `extras.url` | **深链**。网页端会把它渲染成「打开 →」按钮（放在正文之后），点一下直达目标页面 |
 | `extras.urlLabel` | 深链按钮的文字，发送方说了算（不翻译）；没给就显示 url 的域名 |
+| `extras.removedUrl` | **删除类通知专用**：被删对象的地址。服务端据此把历史消息里引用了同一个 url 的按钮标记上 `urlGone`（见下），消息自己不会因此多出按钮 |
+| `extras.urlGone` | 服务端写入的**标记**（`true`）：这个 url 指向的对象已经被删了。网页端把按钮渲染成灰色「已删除」——不摘掉按钮，因为"当时能点、现在东西没了"本身就是信息。**只有服务端会写它**，发送方写了也不作数 |
 | `extras.sender` | **发送者快照**，见下 |
 | `extras.app` | **应用快照**，见下 |
 

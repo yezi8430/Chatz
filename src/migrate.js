@@ -67,6 +67,13 @@ function migrate(db) {
       db.exec('ALTER TABLE applications ADD COLUMN user_id INTEGER');
       note('applications.user_id');
     }
+    // 「缓存封面图」开关（0/1，默认关）：开了之后，本应用消息里 extras.image
+    // 指向的外链图片会被抓下来存成本地附件，媒体删除后老通知的封面依然能看。
+    // 详见 src/imageCache.js 的文件头说明
+    if (!columnExists(db, 'applications', 'cache_images')) {
+      db.exec('ALTER TABLE applications ADD COLUMN cache_images INTEGER DEFAULT 0');
+      note('applications.cache_images');
+    }
 
     // messages
     if (!columnExists(db, 'messages', 'channel_id')) {

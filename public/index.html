@@ -579,6 +579,12 @@
       <label>默认发到频道</label>
       <select id="appChannel"></select>
 
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:13px;">
+        <input id="appCacheImages" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);">
+        <span>缓存封面图</span>
+      </label>
+      <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">开启后，消息里的外链封面图会被抓下来存成本地附件 —— 源站（如 Jellyfin）删掉媒体后，老通知的封面依然能显示。抓取失败不影响消息。</p>
+
       <label>图标（可选）</label>
       <label class="file-input">
         <input id="appIconFile" type="file" accept="image/*" hidden>

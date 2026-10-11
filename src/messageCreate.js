@@ -117,7 +117,14 @@ function findAggregateTarget(channelId, appid, title) {
 // 独立成函数便于离线 verify 抠出来测：不用 db、不用网络。
 function coverUrlOf(extras) {
   if (!extras || typeof extras !== 'object' || Array.isArray(extras)) return null;
-  if (typeof extras.image === 'string' && extras.image) return extras.image;
+  // ⚠️ 比较要用**原始外链**（imageSource），不是本地缓存地址：
+  //    「缓存封面图」开着时同一张图会换成本地 /attachments/cached-<sha1>…，
+  //    但如果某一条抓取失败（对方超时/404），它还是外链 ⇒ 直接比 image 会
+  //    把"同一部剧的集"判成不一致，主卡就没图了。imageSource 两边都有值，稳。
+  const src = (typeof extras.imageSource === 'string' && extras.imageSource)
+    ? extras.imageSource
+    : extras.image;
+  if (typeof src === 'string' && src) return src;
   const d = extras['client::display'];
   if (d && typeof d === 'object' && !Array.isArray(d) && typeof d.url === 'string' && d.url) return d.url;
   const n = extras['client::notification'];
@@ -165,7 +172,7 @@ function applyMainCover(mainExtrasRaw, mainMessageRaw, children) {
     const parsed = mainExtrasRaw ? JSON.parse(mainExtrasRaw) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) merged = { ...parsed };
   } catch { merged = {}; }
-  for (const k of ['image', 'client::display', 'client::notification']) {
+  for (const k of ['image', 'imageSource', 'client::display', 'client::notification']) {
     if (src[k] !== undefined) merged[k] = src[k];
   }
 
@@ -212,6 +219,101 @@ function normalizeMainDeepLink(mainExtrasRaw, children) {
     }
   } catch { /* 主卡 extras 坏了就别碰它，保持原样 */ }
   return mainExtrasRaw;
+}
+
+// ── 「已删除」标记（extras.urlGone）────────────────────────────
+//
+// 场景：Jellyfin 插件删除媒体时会在 extras 里带 `removedUrl`（被删条目的详情页
+// 地址）。之前发过的「新增媒体」通知里那个「在 Jellyfin 中打开」按钮，从此点开
+// 必然 404。这里给那些老消息的 extras **追加**一个 `urlGone: true`（只加标记，
+// 不改动原有内容），前端把按钮渲染成灰色的「已删除」—— 历史消息因此仍然可信：
+// "当时能点，现在东西没了"。而不是偷偷把按钮摘掉。
+//
+// 触发：任何带 extras.removedUrl 的消息（插件 v1.1.3 起）。
+// 扫描：同应用下未删除、且 extras / agg_children 里引用了该 url 的消息
+//       （折叠子项里的那些也在 agg_children 这一列里，必须一起扫）。
+//
+// ⚠️ LIKE 只是粗筛：URL 里可能有 % 和 _，所以做了转义 + 精确比对兜底。
+// ⚠️ 一次最多处理 200 条 —— 一个 url 被几千条消息引用属于异常情况，
+//    别让一条 webhook 把主线程卡住；被截断时记一条日志。
+// ⚠️ 广播的是 `messageUpdated`，前端按「只替换内容、不加未读」处理。
+const MAX_URL_GONE_ROWS = 200;
+
+function markUrlGone(appid, removedUrl) {
+  if (!appid || typeof removedUrl !== 'string' || !removedUrl) return 0;
+
+  // LIKE 转义：% _ \ 都要转（配合 ESCAPE 子句），避免 URL 里的 % 变成通配符
+  const pattern = '%' + removedUrl.replace(/[\\%_]/g, m => '\\' + m) + '%';
+
+  let rows;
+  try {
+    rows = db.prepare(`
+      SELECT id, channel_id, extras, agg_children FROM messages
+      WHERE appid = ? AND deleted_at IS NULL
+        AND (extras LIKE ? ESCAPE '\\' OR agg_children LIKE ? ESCAPE '\\')
+      LIMIT ?
+    `).all(appid, pattern, pattern, MAX_URL_GONE_ROWS + 1);
+  } catch {
+    return 0; // 查询本身出错（表结构异常等）不该影响消息创建
+  }
+  if (rows.length === 0) return 0;
+
+  if (rows.length > MAX_URL_GONE_ROWS) {
+    i18n.warn('message.urlGoneTruncated', { max: MAX_URL_GONE_ROWS, url: removedUrl });
+    rows = rows.slice(0, MAX_URL_GONE_ROWS);
+  }
+
+  let marked = 0;
+  for (const row of rows) {
+    let touched = false;
+
+    // 主卡 extras
+    if (row.extras) {
+      try {
+        const ex = JSON.parse(row.extras);
+        if (ex && typeof ex === 'object' && !Array.isArray(ex)
+          && ex.url === removedUrl && ex.urlGone !== true) {
+          ex.urlGone = true;
+          db.prepare('UPDATE messages SET extras = ? WHERE id = ?').run(JSON.stringify(ex), row.id);
+          touched = true;
+        }
+      } catch { /* 坏 JSON：跳过这条 */ }
+    }
+
+    // 折叠子项（各自的 extras 都在这一列里）
+    if (row.agg_children) {
+      try {
+        const kids = JSON.parse(row.agg_children);
+        if (Array.isArray(kids)) {
+          let kidTouched = false;
+          const next = kids.map(c => {
+            const cex = c && c.extras;
+            if (cex && typeof cex === 'object' && !Array.isArray(cex)
+              && cex.url === removedUrl && cex.urlGone !== true) {
+              kidTouched = true;
+              return { ...c, extras: { ...cex, urlGone: true } };
+            }
+            return c;
+          });
+          if (kidTouched) {
+            db.prepare('UPDATE messages SET agg_children = ? WHERE id = ?').run(JSON.stringify(next), row.id);
+            touched = true;
+          }
+        }
+      } catch { /* 同上 */ }
+    }
+
+    if (touched) {
+      marked++;
+      try {
+        const updated = db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id);
+        if (updated) {
+          ws.broadcastToChannels([updated.channel_id], { event: 'messageUpdated', message: rowToMsg(updated) });
+        }
+      } catch { /* 广播失败不影响落库 */ }
+    }
+  }
+  return marked;
 }
 
 function broadcastAggregated(target, ctx) {
@@ -425,9 +527,19 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
     _hops: safeHops,
   };
 
+  // ── 「已删除」标记：先把历史消息上的失效按钮标掉，再走后面那套正常流程 ──
+  // 放在路由**之前**：这是**事实性信息**（那个东西真没了），跟这条通知发不发出去、
+  // 会不会被规则丢弃无关。见 markUrlGone 的说明。
+  {
+    const ex = ctx.message.extras;
+    if (ex && typeof ex === 'object' && !Array.isArray(ex)
+      && typeof ex.removedUrl === 'string' && ex.removedUrl) {
+      markUrlGone(ctx.message.appid, ex.removedUrl);
+    }
+  }
+
   const routed = applyRoutes(ctx);
   if (routed === null) return { dropped: true };
-
   // 发送者快照写进 extras（在路由之后，且覆盖写入 —— 见 attachSender 的说明）
   attachSender(ctx, userId);
   // 应用快照同理：应用现在按用户隔离，客户端已经查不到「别人应用」的名字/图标了

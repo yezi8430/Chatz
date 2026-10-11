@@ -1278,8 +1278,19 @@ body::before {
               color var(--dur-fast) var(--ease-out);
 }
 .msg-open-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
-.msg-open-btn:hover { background: var(--accent); color: #fff; }
-[data-theme="dark"] .msg-open-btn:hover { color: #14141a; }
+a.msg-open-btn:hover { background: var(--accent); color: #fff; }
+[data-theme="dark"] a.msg-open-btn:hover { color: #14141a; }
+/* 目标已被删除（extras.urlGone，见服务端 markUrlGone）：同一个胶囊但灰掉、不可点。
+   刻意**不摘掉**按钮 —— "当时能点、后来东西没了"本身就是信息，灰化比消失诚实。
+   用 span 渲染（没有 href），所以按钮的 hover 规则只挂在 a 上。 */
+.msg-open-btn.gone {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: line-through;
+  text-decoration-color: var(--text-muted);
+}
 /* 合并子项里的同款按钮：更小一号，别抢正文 */
 .msg-open-btn.agg-child-open { margin: 8px 0 0; padding: 3px 10px; font-size: 11px; }
 .msg-body pre {

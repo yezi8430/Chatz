@@ -13,6 +13,7 @@ const usersRouter = require('./users');
 const routesApi = require('./routes-api');
 const adminApi = require('./admin-api');
 const { createMessage, AGG_WINDOW_MS, AGG_MAX_LIFETIME_MS } = require('./messageCreate');
+const { applyImageCache } = require('./imageCache');
 const { router: hooksRouter } = require('./hooks');
 const { createCertsRouter } = require('./certs');
 const { createBackgroundRouter } = require('./background');
@@ -292,6 +293,8 @@ function rowToApp(row) {
     defaultPriority: 0,
     channelId: row.channel_id || null,
     template: row.template || null,
+    // 缓存封面图开关（0/1 → 布尔）。老行是 NULL，按关处理
+    cacheImages: !!row.cache_images,
   };
 }
 
@@ -394,6 +397,21 @@ function appBelongsToUser(row, req) {
   return !!row && row.user_id === req.user.id;
 }
 
+/**
+ * 解析一条消息最终会落到哪个应用 —— POST /message 要拿它读 cache_images。
+ *
+ * ⚠️ 这里的兜底顺序必须和 messageCreate.js 里那段**保持一致**：
+ *    显式 appid → 该用户自己的第一个应用 → 全局第一个（通常是内置的默认应用）。
+ *    改那边时记得同步这里（两处都只有 3 行，暂时不值得抽公共函数）。
+ */
+function resolveAppForMessage(userId, appid) {
+  if (appid) return db.prepare('SELECT * FROM applications WHERE id = ?').get(appid);
+  const mine = userId != null
+    ? db.prepare('SELECT * FROM applications WHERE user_id = ? ORDER BY id ASC LIMIT 1').get(userId)
+    : null;
+  return mine || db.prepare('SELECT * FROM applications ORDER BY id ASC LIMIT 1').get();
+}
+
 app.get('/application', (req, res) => {
   const rows = db.prepare('SELECT * FROM applications WHERE user_id = ? ORDER BY id ASC').all(req.user.id);
   res.json(rows.map(rowToApp));
@@ -405,7 +423,7 @@ app.get('/application', (req, res) => {
 app.post('/application',
   rateLimit({ windowMs: 3600000, max: 30, name: 'app_create', message: '新建应用过于频繁，请稍后再试' }),
   (req, res) => {
-  const { name, description, image, channel_id, template } = req.body || {};
+  const { name, description, image, channel_id, template, cache_images } = req.body || {};
   if (!name) return res.status(400).json({ error: '请填写名称' });
 
   let finalChannelId = channel_id;
@@ -451,8 +469,8 @@ app.post('/application',
     if (dup) continue;
     try {
       info = db.prepare(
-        'INSERT INTO applications (name, description, image, channel_id, template, token, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-      ).run(name, description || null, image || null, finalChannelId, template || null, candidate, Date.now(), req.user.id);
+        'INSERT INTO applications (name, description, image, channel_id, template, token, created_at, user_id, cache_images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(name, description || null, image || null, finalChannelId, template || null, candidate, Date.now(), req.user.id, cache_images ? 1 : 0);
       token = candidate;
       break;
     } catch (e) {
@@ -483,7 +501,7 @@ app.patch('/application/:id', (req, res) => {
     return res.status(404).json({ error: '资源不存在' });
   }
 
-  const { name, description, image, channel_id, template } = req.body || {};
+  const { name, description, image, channel_id, template, cache_images } = req.body || {};
 
   // 改绑频道同样要校验归属（同 POST）：不能把应用指向别人的私有频道
   if (channel_id !== undefined && channel_id) {
@@ -506,6 +524,7 @@ app.patch('/application/:id', (req, res) => {
   if (image !== undefined) { updates.push('image = ?'); params.push(image); }
   if (channel_id !== undefined) { updates.push('channel_id = ?'); params.push(channel_id); }
   if (template !== undefined) { updates.push('template = ?'); params.push(template); }
+  if (cache_images !== undefined) { updates.push('cache_images = ?'); params.push(cache_images ? 1 : 0); }
   if (updates.length === 0) return res.json(rowToApp(row));
 
   params.push(id);
@@ -514,7 +533,7 @@ app.patch('/application/:id', (req, res) => {
   audit.fromReq(req, {
     action: 'app.update',
     target: String(id),
-    meta: { changed: ['name', 'description', 'image', 'channel_id', 'template'].filter(k => (req.body || {})[k] !== undefined) },
+    meta: { changed: ['name', 'description', 'image', 'channel_id', 'template', 'cache_images'].filter(k => (req.body || {})[k] !== undefined) },
   });
   res.json(rowToApp(updated));
 });
@@ -737,9 +756,24 @@ app.get('/message/deleted', (req, res) => {
   });
 });
 
-app.post('/message', (req, res) => {
-  const { title, message, priority, extras, appid, channel_id, tags, silent } = req.body || {};
+app.post('/message', async (req, res) => {
+  let { title, message, priority, extras, appid, channel_id, tags, silent } = req.body || {};
   if (!message) return res.status(400).json({ error: '消息内容不能为空' });
+
+  // ── 缓存封面图（应用级开关）──
+  // 把 extras.image 指的外链图抓成本地附件；媒体被删后老通知的封面依然能看。
+  // 与 webhook 那条路同一套逻辑，都必须在 createMessage **之前**做（见 hooks.js 的说明）。
+  const cacheApp = resolveAppForMessage(req.user ? req.user.id : null, appid);
+  if (cacheApp && cacheApp.cache_images && extras && typeof extras === 'object' && !Array.isArray(extras)) {
+    try {
+      const cached = await applyImageCache({ app: cacheApp, extras, message, attachmentsDir: ATTACHMENTS_DIR });
+      extras = cached.extras;
+      message = cached.message;
+    } catch (e) {
+      // 缓存只是"锦上添花"，任何意外都不该拦住消息本身
+      i18n.warn('imageCache.writeFailed', { name: '(unexpected)', msg: e.message });
+    }
+  }
 
   const result = createMessage({
     appid, channel_id, message, title, priority, extras, tags, silent,

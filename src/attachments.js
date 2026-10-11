@@ -43,45 +43,10 @@ const BLOCKED_EXTS = new Set([
   'html', 'htm', 'xhtml', 'shtml', 'svg', 'xml', 'js', 'mjs', 'cjs', 'hta', 'swf',
 ]);
 
-// ── 容量上限 ──
-//
-// ⚠️ 为什么需要：这个接口接受**任意类型**文件，之前除了单请求 20MB 之外
-//    没有任何总量约束，而孤儿清理只在启动时跑一次。
-//    于是「登录用户 × 限流 30 次/分钟 × 20MB」= 600MB/分钟的写入，
-//    文件还会一直留着 —— 对 NAS 是个实打实的磁盘风险。
-//
-// 两个值都可用环境变量调，默认取保守值：
-//   单文件 8MB（和背景图的 8MB 对齐，图片类接口口径一致）
-//   总量   500MB（超了就拒绝，不再无上限地长）
-const MAX_FILE_BYTES =
-  (parseInt(process.env.ATTACHMENT_MAX_FILE_MB, 10) || 8) * 1024 * 1024;
-const MAX_TOTAL_BYTES =
-  (parseInt(process.env.ATTACHMENT_MAX_TOTAL_MB, 10) || 500) * 1024 * 1024;
-
-/**
- * 附件目录当前总大小
- *
- * ⚠️ 带 5 秒缓存：每次上传都 readdirSync + 逐个 statSync，文件多了（几千个）
- *    会明显拖慢请求。容量检查不需要精确到字节，几秒内复用同一个值没问题。
- */
-let cachedSize = null;
-let cachedAt = 0;
-function dirSize(dir) {
-  const now = Date.now();
-  if (cachedSize != null && now - cachedAt < 5000) return cachedSize;
-
-  let total = 0;
-  try {
-    for (const f of fs.readdirSync(dir)) {
-      try {
-        total += fs.statSync(path.join(dir, f)).size;
-      } catch {}
-    }
-  } catch {}
-  cachedSize = total;
-  cachedAt = now;
-  return total;
-}
+// ── 容量上限与目录统计 ──
+// 实现在 attachmentLimits.js（零依赖，缓存封面图那边复用同一套口径，
+// 而离线 verify 脚本要能不带 db 依赖地 require 它）
+const { MAX_FILE_BYTES, MAX_TOTAL_BYTES, dirSize } = require('./attachmentLimits');
 
 function sanitizeName(raw) {
   const base = path.basename(String(raw || ''))
@@ -168,9 +133,14 @@ function createAttachmentsRouter({ attachmentsDir }) {
  * 从一条消息里揪出它引用的附件文件名
  *
  * 正文（markdown 链接 / 裸 URL）和 extras 里都可能有，两边都扫。
+ *
+ * ⚠️ **agg_children 也要扫**：折叠消息的子项各自带着自己的 extras / 正文，
+ *    附件引用（比如缓存下来的封面图）就藏在那一列里。漏掉它的话，
+ *    「删掉引用这条消息」时别的消息里还在用的文件会被误删，
+ *    sweep 也会把还在用的文件当孤儿清掉。
  */
 function attachmentNamesIn(row) {
-  const text = (row.message || '') + ' ' + (row.extras || '');
+  const text = (row.message || '') + ' ' + (row.extras || '') + ' ' + (row.agg_children || '');
   const names = new Set();
   const re = /\/attachments\/([A-Za-z0-9][A-Za-z0-9._-]*)/g;
   let m;
@@ -180,11 +150,13 @@ function attachmentNamesIn(row) {
 
 /** 还有别的（未删除的）消息在引用这个附件吗 */
 function isStillReferenced(db, name) {
+  const like = '%/attachments/' + name + '%';
   const hit = db.prepare(`
     SELECT 1 FROM messages
-    WHERE deleted_at IS NULL AND (message LIKE ? OR extras LIKE ?)
+    WHERE deleted_at IS NULL
+      AND (message LIKE ? OR extras LIKE ? OR agg_children LIKE ?)
     LIMIT 1
-  `).get('%/attachments/' + name + '%', '%/attachments/' + name + '%');
+  `).get(like, like, like);
   return !!hit;
 }
 
@@ -282,9 +254,11 @@ function sweepOrphanAttachments({ db, attachmentsDir }) {
 
   const referenced = new Set();
   const rows = db.prepare(`
-    SELECT message, extras FROM messages
+    SELECT message, extras, agg_children FROM messages
     WHERE deleted_at IS NULL
-      AND (message LIKE '%/attachments/%' OR extras LIKE '%/attachments/%')
+      AND (message LIKE '%/attachments/%'
+           OR extras LIKE '%/attachments/%'
+           OR agg_children LIKE '%/attachments/%')
   `).all();
   for (const row of rows) {
     for (const name of attachmentNamesIn(row)) referenced.add(name);
@@ -326,4 +300,8 @@ module.exports = {
   cleanupMessageAttachments,
   cleanupAttachmentsOfRows,
   sweepOrphanAttachments,
+  // imageCache 复用同一套容量口径（缓存封面图和用户上传的附件共享一个目录/上限）
+  dirSize,
+  MAX_FILE_BYTES,
+  MAX_TOTAL_BYTES,
 };

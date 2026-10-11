@@ -73,14 +73,17 @@ const appSrc = fs.readFileSync(path.join(__dirname, 'public', 'app.js'), 'utf8')
 const s2 = appSrc.indexOf('function renderOpenLink');
 const e2 = appSrc.indexOf('function renderAggChildren');
 if (s2 < 0 || e2 < 0 || e2 <= s2) { console.error('切不出 renderOpenLink：标记变了'); process.exit(1); }
-// escapeHtml 是 app.js 里的既有工具，测试环境给它一个等价实现
+// escapeHtml / chatzT 是 app.js 里的既有工具，测试环境给等价实现
+// （chatzT 在中文下就是"查不到就原样返回"，用恒等函数即可）
 const escapeHtml = s => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const chatzT = s => s;
 const renderOpenLink = new Function(
   'escapeHtml',
+  'chatzT',
   appSrc.slice(s2, e2) + '\nreturn renderOpenLink;'
-)(escapeHtml);
+)(escapeHtml, chatzT);
 
 console.log('— 6. 深链按钮渲染 —');
 const html6 = renderOpenLink({ url: U_A, urlLabel: '在 Jellyfin 中打开' });
@@ -97,6 +100,18 @@ const html6b = renderOpenLink({ url: U_A });
 ok('没给 label ⇒ 回落显示域名', html6b.includes('jellyfin.example.com'));
 const html6c = renderOpenLink({ url: 'https://x.com/a"><script>' });
 ok('url/label 均被 escape', !html6c.includes('<script>'));
+
+console.log('— 6b. 「已删除」标记（extras.urlGone）—');
+const goneHtml = renderOpenLink({ url: U_A, urlLabel: '在 Jellyfin 中打开', urlGone: true });
+ok('灰化：不再是链接（没有 <a href）', !goneHtml.includes('<a '));
+ok('灰化：带 gone 类', goneHtml.includes('msg-open-btn gone'));
+ok('灰化：文案仍保留原按钮名', goneHtml.includes('在 Jellyfin 中打开'));
+ok('灰化：带「已删除」字样', goneHtml.includes('已删除'));
+ok('灰化：不可点（span 没有 href）', !goneHtml.includes('href='));
+ok('灰化时子项小号类也保留', renderOpenLink({ url: U_A, urlGone: true }, 'agg-child-open').includes('agg-child-open'));
+const notGone = renderOpenLink({ url: U_A, urlLabel: 'x', urlGone: false });
+ok('urlGone 不是 true ⇒ 仍是可点链接', notGone.includes('<a '));
+eq('没有 url 时即使 urlGone 也不渲染', renderOpenLink({ urlGone: true }), '');
 
 // ── 3. 折叠主卡的封面一致性（applyMainCover / allChildrenShareCover / coverUrlOf）──
 const s3 = mcSrc.indexOf('function coverUrlOf');
@@ -171,6 +186,20 @@ const r11a = applyMainCover(mainWithCover, BODY_IMG(IMG_A), [{ extras: { image: 
 ok('有图+无图混着 ⇒ 主卡摘图', !('image' in JSON.parse(r11a.extrasRaw)));
 const r11b = applyMainCover(mainWithCover, BODY_IMG(IMG_A), [{ extras: { sender: {} } }, { extras: { sender: {} } }]);
 ok('全都没有封面 ⇒ 摘掉主卡残留的图', !('image' in JSON.parse(r11b.extrasRaw)));
+
+console.log('— 11b. 缓存后的封面一致性（imageSource 归一化）—');
+// 一集缓存成功（image 是本地地址、imageSource 是原始外链），另一集抓取失败（还是外链）：
+// 比较必须认它们「同一张图」，否则主卡就没图了
+const cachedKid = { extras: { image: '/attachments/cached-abc.jpg', imageSource: IMG_A } };
+const rawKid = { extras: { image: IMG_A } };
+ok('缓存成功 vs 抓取失败 ⇒ 仍判为一致', allChildrenShareCover([cachedKid, rawKid]));
+eq('比较值取原始外链', coverUrlOf(cachedKid.extras), IMG_A);
+eq('没有 imageSource 时用 image', coverUrlOf(rawKid.extras), IMG_A);
+// 一致时主卡恢复封面，要把本地地址（image）和原始地址（imageSource）**都**带走
+const r11c = applyMainCover(JSON.stringify({ sender: { id: 1 } }), 'x', [cachedKid, { extras: { image: '/attachments/cached-abc.jpg', imageSource: IMG_A } }]);
+const m11c = JSON.parse(r11c.extrasRaw);
+eq('恢复时带上本地地址（渲染用）', m11c.image, '/attachments/cached-abc.jpg');
+eq('恢复时带上原始地址（比较用）', m11c.imageSource, IMG_A);
 
 console.log('— 12. 接线检查（新增的调用点与前端口径）—');
 ok('折叠流程里调用了 applyMainCover', /const cover = applyMainCover\(mainExtrasRaw, mainMessageRaw, children\)/.test(mcSrc));

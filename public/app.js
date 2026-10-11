@@ -782,6 +782,19 @@ function handleWsEvent(data) {
       loadUnreadCounts();
       break;
     }
+    case 'messageUpdated': {
+      // 服务端改了一条已存在消息的内容（目前只有一种来源：删除类通知带来的
+      // extras.urlGone 标记 —— 把老卡片上的「打开」按钮灰化成「已删除」）。
+      // 与 messageAggregated 一样只替换内容：绝不动未读计数（这不是新消息）。
+      const upd = data.message;
+      if (!upd) break;
+      const idx = state.messages.findIndex(m => m.id === upd.id);
+      if (idx >= 0) {
+        state.messages[idx] = { ...state.messages[idx], ...upd };
+        renderMessages();
+      }
+      break;
+    }
     case 'messageDeleted':
       state.messages = state.messages.filter(m => m.id !== data.id);
       renderMessages();
@@ -1236,6 +1249,14 @@ function renderOpenLink(extras, cls) {
   const label = (typeof extras.urlLabel === 'string' && extras.urlLabel.trim())
     ? extras.urlLabel.trim()
     : u.host;
+
+  // 目标已经被删掉了（服务端收到删除类通知后打的标记，见 messageCreate 的 markUrlGone）：
+  // 渲染成灰色的「已删除」，而不是留一个点开必然 404 的按钮 —— 也不直接摘掉，
+  // 因为"当时能点、现在东西没了"这件事本身就是历史的一部分。
+  if (extras.urlGone === true) {
+    return `<span class="msg-open-btn gone ${cls || ''}" title="${escapeHtml(chatzT('目标已删除'))}">${escapeHtml(label)}（${escapeHtml(chatzT('已删除'))}）</span>`;
+  }
+
   return `<a class="msg-open-btn ${cls || ''}" href="${escapeHtml(u.href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(u.href)}">${escapeHtml(label)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg></a>`;
 }
 
@@ -3506,6 +3527,8 @@ function openAppEditor(app) {
   $('#appDesc').value = app ? (app.description || '') : '';
   $('#appIconFile').value = '';
   $('#appIconPreview').innerHTML = '';
+  // 「缓存封面图」开关：老应用这字段是 NULL ⇒ rowToApp 里兜成 false
+  $('#appCacheImages').checked = !!(app && app.cacheImages);
 
   // 填充频道下拉框
   const sel = $('#appChannel');
@@ -3533,6 +3556,8 @@ async function saveApp() {
     name,
     description: description || null,
     channel_id,
+    // 缓存封面图：只对"自带图片地址"的消息生效（服务端 extras.image 那条路）
+    cache_images: $('#appCacheImages').checked,
   };
 
   try {

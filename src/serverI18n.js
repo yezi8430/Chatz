@@ -245,6 +245,20 @@ const DICT = {
     zh: '⚠️ 附件删除失败（会一直留在盘上，下次清理会重试）: {name} —— {msg}',
     en: '⚠️ failed to delete attachment (stays on disk, next sweep retries): {name} — {msg}',
   },
+  // ── 缓存封面图（src/imageCache.js）──
+  'imageCache.dirFull': {
+    zh: '⚠️ 附件目录已达容量上限，跳过缓存封面图（消息照发，图保持外链）',
+    en: '⚠️ attachment dir is full, skipping cover caching (message still sent, image stays external)',
+  },
+  'imageCache.writeFailed': {
+    zh: '⚠️ 缓存封面图写盘失败，保持外链: {name} —— {msg}',
+    en: '⚠️ failed to write cached cover to disk, keeping external link: {name} — {msg}',
+  },
+  // ── 「已删除」标记（src/messageCreate.js 的 markUrlGone）──
+  'message.urlGoneTruncated': {
+    zh: '⚠️ 「已删除」标记：匹配的消息超过 {max} 条，只处理了前 {max} 条: {url}',
+    en: '⚠️ url-gone marking: more than {max} matching messages, only the first {max} were processed: {url}',
+  },
 
   // ── 审计 ────────────────────────────────────────────────
   'audit.trimmed': { zh: '🧾 审计日志裁剪：删除 {n} 条', en: '🧾 audit trimming: removed {n} row(s)' },

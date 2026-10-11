@@ -1409,6 +1409,7 @@ authentication.
 | token | The part used in the webhook URL. **10 chars of mixed-case letters + digits** (e.g. `aB3xK9mQ2p`), globally unique. Legacy 48-char hex values are converted automatically by the startup migration |
 | channelId | Which channel the app sends to by default |
 | template | Message template (JSON string), see [TEMPLATE.md](TEMPLATE.md) |
+| cacheImages | **Cover caching** toggle (boolean). When on, external images in this app's messages are downloaded and stored locally so old notifications keep their covers after the source deletes the media (details under `POST /application`). Off by default |
 | internal | Always `false` (kept for Gotify client compatibility) |
 | defaultPriority | Always `0` (same, not implemented) |
 
@@ -1431,11 +1432,27 @@ authentication.
   "name": "GitHub",
   "description": "GitHub notifications",
   "channel_id": 1,
-  "template": null
+  "template": null,
+  "cache_images": false
 }
 
 // response: same as a GET list item, including the generated token
 ```
+
+> **`cache_images` (cover caching)** — when on, external images referenced by
+> `extras.image` in this app's messages are downloaded before the message is stored and
+> re-pointed at a local `/attachments/cached-<sha1>.<ext>` file, so old notifications keep
+> their covers even after the source (e.g. Jellyfin) deletes the media; a failed fetch just
+> leaves the external link. Only `http(s)` and real images (magic bytes: png/jpg/gif/webp;
+> **svg always rejected** — same-origin inlining would be stored XSS) are accepted, 5 MB per
+> file, sharing the attachment directory's 500 MB cap. Files are deduplicated by URL and
+> garbage-collected with the messages that reference them. Successful caching also rewrites
+> `client::display.url`, `client::notification.bigImageUrl` and the image URL inside the body,
+> and records the original link in `extras.imageSource`.
+>
+> ⚠️ **Security**: with this on, anyone holding that app's token can make the server GET
+> arbitrary `http(s)` URLs (an SSRF surface; redirects are followed). Self-hosted with the
+> token in the admin's hands this is acceptable; otherwise leave it off.
 
 With no `channel_id`, it falls to **the first channel the user themselves subscribes to**; with no
 subscriptions at all it falls back to the lowest-id channel (default channel id = 1).
@@ -1446,7 +1463,7 @@ subscriptions at all it falls back to the lowest-id channel (default channel id 
 
 ### `PATCH /application/:id` logged in
 
-Editable: `name`, `description`, `image`, `channel_id`, `template`.
+Editable: `name`, `description`, `image`, `channel_id`, `template`, `cache_images`.
 
 ### `DELETE /application/:id` logged in
 
@@ -2289,6 +2306,9 @@ Carries `ownerId` / `ownerName`; `conditions` / `actions` are already parsed int
 | `extras.image` | Cover image URL. Priority: `image` → `client::display.url` → `client::notification.bigImageUrl` |
 | `extras.url` | **Deep link**. The web UI renders it as an "Open →" button below the body; one click goes straight to the target page |
 | `extras.urlLabel` | Button text, decided by the sender (never translated); falls back to the URL's host when omitted |
+| `extras.imageSource` | Present only when **cover caching** rewrote `image` to a local `/attachments/...` path: holds the **original external URL**. The aggregate cover-consistency check compares this value (rendering still uses `image`), so "one child cached, one child failed to cache" is not mistaken for two different covers |
+| `extras.removedUrl` | **Deletion notices only**: the address of the removed object. The server uses it to flag older messages that link to the same URL with `urlGone` (below); the notice itself gains no button |
+| `extras.urlGone` | A **server-written flag** (`true`): the object behind this url no longer exists. The web UI greys the button out and labels it "deleted" instead of removing it — "it worked then, the thing is gone now" is itself information. Senders cannot set it |
 | `extras.sender` | **Sender snapshot**, see below |
 | `extras.app` | **App snapshot**, see below |
 
