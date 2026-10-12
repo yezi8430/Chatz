@@ -532,8 +532,13 @@
         <div class="digest-row">
           <label for="digestTime">发送时间</label>
           <input id="digestTime" type="time" value="08:00">
+          <span class="digest-unit">每天这个时刻发一份</span>
+        </div>
+        <div class="digest-row">
+          <label for="digestTz">时区</label>
           <input id="digestTz" class="digest-tz" type="text" list="digestTzList" value="Asia/Shanghai"
                  spellcheck="false" autocomplete="off" placeholder="Asia/Shanghai">
+          <span id="digestTzHint" class="digest-unit"></span>
         </div>
         <datalist id="digestTzList">
           <option value="Asia/Shanghai">北京时间</option>

@@ -9,8 +9,10 @@ const audit = require('./audit');
 const ws = require('./ws');
 const i18n = require('./serverI18n');
 // 每日摘要：设置默认值 + 立即运行接口都在这儿（设置项本身在 SETTINGS_SPEC）
-const { digestSettingsOf, sendDigest, zoneNow } = require('./digest');
-const { isValidTz, normalizeTz } = require('./digestCore');
+const { digestSettingsOf, sendDigest } = require('./digest');
+// zoneNow / isValidTz 定义在 digestCore.js（零依赖），直接从源头拿 ——
+// 隔一层 re-export 只会多一个「改了 digestCore 忘了改 digest」的坑
+const { isValidTz, normalizeTz, zoneNow } = require('./digestCore');
 const router = express.Router();
 
 /**

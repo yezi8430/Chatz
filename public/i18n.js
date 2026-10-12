@@ -244,6 +244,9 @@
     '开启后会建一个私有的「每日摘要」频道（只有你能看），摘要落在里面。关掉开关只是不再生成、也不显示入口，历史仍会保留。':
       'Turning this on creates a private “Daily digest” channel (only you can see it) where the digests land. Turning it off only stops generation and hides the entry — the history stays.',
     '发送时间': 'Send at',
+    '每天这个时刻发一份': 'sent once a day at this time',
+    '那边现在是 {0}': 'it is {0} there right now',
+    '不是有效的时区名': 'not a valid time zone name',
     '默认北京时间（Asia/Shanghai），可以改成任何 IANA 时区名。填了一个不存在的时区，这一项会保存失败（其它项照常保存）。':
       'Defaults to Beijing time (Asia/Shanghai); set any IANA time zone name instead. A name that does not exist is rejected (the other fields still save).',
     '时区无效，已回退为 {0}': 'Invalid time zone — fell back to {0}',

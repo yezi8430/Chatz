@@ -2562,6 +2562,7 @@ async function loadDigestSettings() {
   $('#digestEnabled').checked = !!d.enabled;
   $('#digestTime').value = /^\d{2}:\d{2}$/.test(d.time) ? d.time : DIGEST_DEFAULTS.time;
   $('#digestTz').value = (typeof d.tz === 'string' && d.tz.trim()) ? d.tz.trim() : DIGEST_DEFAULTS.tz;
+  refreshTzHint();
   setDigestPriority(d.priority);
   $('#digestIncludeMuted').checked = !!d.includeMuted;
   $('#digestExcludeOwn').checked = !!d.excludeOwn;
@@ -2571,6 +2572,30 @@ async function loadDigestSettings() {
   state.digest = d;
   // 关掉之后如果正停在摘要频道上，要回到「所有频道」（入口都没了，还停在里面很怪）
   ensureDigestVisible();
+}
+
+/**
+ * 时区输入框旁边的实时提示：那边现在几点 / 名字对不对
+ *
+ * 用浏览器自己的 Intl 现算，不发请求。浏览器和服务器的 ICU 都是完整版，
+ * 对「某个名字存不存在」的判定一致；万一两边不一致，服务端保存时还会再拦一次。
+ */
+function refreshTzHint() {
+  const el = $('#digestTz');
+  const hint = $('#digestTzHint');
+  if (!el || !hint) return;
+  const v = (el.value || '').trim();
+  el.classList.remove('digest-tz-invalid');
+  if (!v) { hint.textContent = ''; return; }
+  try {
+    const t = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: v, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(new Date());
+    hint.textContent = chatzT('那边现在是 {0}', [t]);
+  } catch (e) {
+    el.classList.add('digest-tz-invalid');
+    hint.textContent = chatzT('不是有效的时区名');
+  }
 }
 
 /**
@@ -4698,6 +4723,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#digestRunBtn').onclick = runDigestNow;
   // 优先级滑块旁的实时数字
   $('#digestPriority').oninput = (e) => { setDigestPriority(e.target.value); };
+  $('#digestTz').addEventListener('input', refreshTzHint);
+  $('#digestTz').addEventListener('change', refreshTzHint);
 
   $('#sendBtn').onclick = openSendModal;
   $('#newChannelBtn').onclick = openChannelModal;

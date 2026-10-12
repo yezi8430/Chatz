@@ -2206,6 +2206,8 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   color: var(--text-secondary);
   white-space: nowrap;
 }
+/* 时间行：时间和时区各自一行，输入框定宽，两行控件起点对齐 */
+.digest-row input[type="time"] { flex: 0 0 110px; }
 /* 数字定宽 + 等宽数字：0~10 之间切换时整行不会抖动 */
 .digest-num {
   flex: 0 0 22px;
@@ -2216,7 +2218,6 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 }
 .digest-row input[type="time"],
 .digest-row input[type="number"] {
-  width: 110px;
   padding: 7px 10px;
   font-size: 13px;
   color: var(--text);
@@ -2224,10 +2225,12 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   border: 1px solid var(--glass-border-soft);
   border-radius: var(--r-md);
 }
+.digest-row input[type="number"] { flex: 0 0 90px; }
 [data-theme="dark"] .digest-row input[type="time"],
 [data-theme="dark"] .digest-row input[type="number"] { background: rgba(255, 255, 255, 0.05); }
 
-/* 时区：可自由填写，宽度比时间宽一点（Asia/Shanghai 这种有 13 个字符） */
+/* 时区：可自由填写。输入框给等宽字体（时区名本来就是这样写的），
+   填错实时变红 —— 不用等点了保存才被服务端打回。 */
 .digest-tz {
   flex: 1 1 auto;
   min-width: 0;
@@ -2238,8 +2241,13 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid var(--glass-border-soft);
   border-radius: var(--r-md);
+  transition: border-color 0.15s ease;
 }
 [data-theme="dark"] .digest-tz { background: rgba(255, 255, 255, 0.05); }
+.digest-tz.digest-tz-invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
 
 /* 优先级滑块：自己画轨道，填充比例由 JS 写到 --digest-fill 上。
    ⚠️ 为什么不用原生 accent-color：原生轨道在两端各留半个滑块的位置，

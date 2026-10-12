@@ -36,7 +36,7 @@ const { refreshUserChannels } = require('./ws');
 const i18n = require('./serverI18n');
 // 纯逻辑（默认值 / 设置合并 / 渲染）在零依赖的 digestCore.js 里，
 // 离线 verify 脚本要能 require 它，见那个文件的说明。
-const { DEFAULT_DIGEST, digestSettingsOf, zoneNow } = require('./digestCore');
+const { DEFAULT_DIGEST, digestSettingsOf, zoneNow, dayKey } = require('./digestCore');
 
 const CHANNEL_NAME = '每日摘要';
 const CHANNEL_DESC = '每天的消息汇总，由系统自动生成（关闭摘要后这里的历史仍会保留）';
@@ -288,5 +288,8 @@ module.exports = {
   sendDigest,
   tick,
   startDigestScheduler,
+  // ⚠️ re-export：users.js 从这里解构 zoneNow。别只在本文件 require 了却忘了
+  //   放进 exports —— 解构出来是 undefined，加载时不报错、调用时才炸（2026-10-13 踩过）
+  zoneNow,
   dayKey,
 };
