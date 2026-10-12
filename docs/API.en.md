@@ -2281,6 +2281,55 @@ Carries `ownerId` / `ownerName`; `conditions` / `actions` are already parsed int
 [{"id": 1, "name": "Urgent escalation", "enabled": true, "priority": 90, "conditions": {...}, "actions": [...], "ownerId": 1, "ownerName": "yezi", "createdAt": 1789...}]
 ```
 
+### Attachment disk quota `/admin/attachments`
+
+The attachments directory (user uploads + covers saved by "cache cover images") shares a single
+disk quota. When the limit is exceeded the server **reclaims automatically**, in this order:
+
+1. Files nobody references (orphans: uploaded but never sent, missed by message deletion)
+2. Referenced **cached covers** (the `cached-` prefix), **oldest first** — the cost is old
+   notifications losing their cover (broken image); message bodies are unaffected
+3. Still over quota → log a warning only. **Referenced user attachments are never auto-deleted**
+   (that is user data)
+
+When it runs: once at startup, then every 6 hours, once before an upload would be rejected,
+and on demand via the endpoint below. Files uploaded within the last 10 minutes but not yet
+referenced by a message are protected by a grace period.
+
+#### `GET /admin/attachments` super-admin
+
+```json
+{
+  "files": 128, "bytes": 52428800, "bytesText": "50.0 MB",
+  "cachedFiles": 96, "cachedBytes": 41943040, "cachedBytesText": "40.0 MB",
+  "quotaBytes": 524288000, "quotaMb": 500, "quotaBytesText": "500.0 MB",
+  "unlimited": false, "quotaLocked": false,
+  "defaultQuotaMb": 500, "maxQuotaMb": 102400
+}
+```
+
+`quotaLocked: true` means the quota is pinned by the `ATTACHMENTS_QUOTA_MB` environment
+variable — changing it in the database has no effect.
+
+#### `PUT /admin/attachments/quota` super-admin
+
+```json
+{"quotaMb": 1024}
+```
+
+- `0` = unlimited; maximum 102400 MB (100 GB)
+- Invalid values return `400`; locked by env var returns `409`
+- Stored in `meta.attachments.quota_mb`, effective immediately (no restart)
+
+#### `POST /admin/attachments/sweep` super-admin
+
+Runs one reclaim pass and reports what happened:
+
+```json
+{"removed": 3, "freed": 12582912, "freedText": "12.0 MB", "skippedFresh": 0,
+ "stillOver": false, "unlimited": false, "bytes": 39845888, "bytesText": "38.0 MB", "files": 125}
+```
+
 ---
 
 ## Message fields

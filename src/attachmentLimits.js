@@ -46,4 +46,32 @@ function dirSize(dir) {
   return total;
 }
 
-module.exports = { MAX_FILE_BYTES, MAX_TOTAL_BYTES, dirSize };
+/**
+ * 刚写进一个新文件时，把缓存值一起加上去
+ *
+ * 为什么需要：不修正的话，5 秒内的连续上传都读到「还没算上本次」的旧值，
+ * 一次能绕过总量检查好几个文件。
+ *
+ * ⚠️ 这个函数就是给 attachments.js 上传路径用的 —— 那边以前直接写了
+ *    `if (cachedSize != null) cachedSize += body.length`，而 cachedSize 是
+ *    **本模块的私有变量**，在 attachments.js 里是个未声明标识符 ⇒ 每次上传
+ *    都在写盘之后抛 ReferenceError（接口 500，文件还留在盘上变成孤儿）。
+ *    现在改成显式导出，调用方再也摸不到这个私有变量。
+ */
+function bumpCachedSize(delta) {
+  if (cachedSize != null) cachedSize += delta;
+}
+
+/** 删过文件后作废缓存（下次 dirSize 重新扫一遍） */
+function resetCachedSize() {
+  cachedSize = null;
+  cachedAt = 0;
+}
+
+module.exports = {
+  MAX_FILE_BYTES,
+  MAX_TOTAL_BYTES,
+  dirSize,
+  bumpCachedSize,
+  resetCachedSize,
+};

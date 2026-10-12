@@ -234,6 +234,26 @@
     '安全与登录': 'Security & sign-in',
     '用户管理': 'Users',
     'HTTPS 证书': 'HTTPS certificate',
+    '存储': 'Storage',
+    '附件与缓存封面的磁盘配额': 'Disk quota for attachments and cached covers',
+    // ---- 存储（磁盘配额）----
+    '已用 <b>{0}</b> / 上限 <b>{1}</b>': 'Used <b>{0}</b> / limit <b>{1}</b>',
+    ' · 共 {0} 个文件，其中缓存封面 {1} 个（{2}）': ' · {0} file(s) in total, {1} cached cover(s) ({2})',
+    '不限': 'unlimited',
+    '当前配额由环境变量 <b>ATTACHMENTS_QUOTA_MB</b> 锁定，这里改了不生效。':
+      'The quota is locked by the <b>ATTACHMENTS_QUOTA_MB</b> environment variable — changing it here has no effect.',
+    '未设上限：目录只增不减，建议填一个值（默认 {0} MB）。':
+      'No limit set: the directory only grows. Pick a value (default {0} MB).',
+    '<span style="color:var(--danger);">已接近上限，超了会自动回收（先删孤儿，再删最旧的缓存封面）。</span>':
+      '<span style="color:var(--danger);">Close to the limit — once exceeded, reclaim runs automatically (orphans first, then the oldest cached covers).</span>',
+    '超限时自动回收：先删没人引用的文件，再删最旧的缓存封面；被消息引用的普通附件永不自动删除。':
+      'When over the limit: unreferenced files are removed first, then the oldest cached covers. Referenced user attachments are never auto-deleted.',
+    '请输入 0 或正整数': 'Enter 0 or a positive integer',
+    '已设为不限制': 'Set to unlimited',
+    '配额已保存：{0} MB': 'Quota saved: {0} MB',
+    '没有可清理的文件（当前 {0}）': 'Nothing to clean (currently {0})',
+    '清理了 {0} 个文件，释放 {1}': 'Removed {0} file(s), freed {1}',
+    '当前没有配额上限，无需清理': 'No quota limit is set — nothing to clean',
     '返回': 'Back',
     '点击修改昵称': 'Click to edit the nickname',
     '昵称': 'Nickname',

@@ -245,6 +245,26 @@ const DICT = {
     zh: '⚠️ 附件删除失败（会一直留在盘上，下次清理会重试）: {name} —— {msg}',
     en: '⚠️ failed to delete attachment (stays on disk, next sweep retries): {name} — {msg}',
   },
+  'attachment.quotaBoot': {
+    zh: '💾 附件目录 {files} 个文件 / {used}，其中缓存封面 {cached} 个；配额上限 {quota}',
+    en: '💾 attachments dir: {files} file(s) / {used} ({cached} cached cover(s)); quota {quota}',
+  },
+  'attachment.quotaUnlimited': {
+    zh: '💾 附件磁盘配额：未设上限（建议在设置页配一个，否则目录只增不减）',
+    en: '💾 attachments disk quota: unlimited (set one in settings, otherwise the dir only grows)',
+  },
+  'attachment.quotaSwept': {
+    zh: '🧹 磁盘配额回收：删除 {n} 个文件，释放 {freed}（当前 {after} / 上限 {quota}）',
+    en: '🧹 quota reclaim: removed {n} file(s), freed {freed} (now {after} / quota {quota})',
+  },
+  'attachment.quotaSkippedFresh': {
+    zh: '🧹 配额回收未删任何文件：有 {n} 个文件在宽限期内（刚上传还没被消息引用）',
+    en: '🧹 quota reclaim removed nothing: {n} file(s) are within the grace period (just uploaded, not referenced yet)',
+  },
+  'attachment.quotaStillOver': {
+    zh: '⚠️ 附件目录仍超出配额：已用 {used} / 上限 {quota}（引用中的用户附件不会被自动删除，请手动清理旧消息）',
+    en: '⚠️ attachments dir still over quota: {used} used / {quota} limit (referenced user attachments are never auto-deleted — clean up old messages manually)',
+  },
   // ── 缓存封面图（src/imageCache.js）──
   'imageCache.dirFull': {
     zh: '⚠️ 附件目录已达容量上限，跳过缓存封面图（消息照发，图保持外链）',

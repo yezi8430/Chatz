@@ -2160,6 +2160,51 @@ HSTS_INCLUDE_SUBDOMAINS=true   # 可选，确认所有子域都能 HTTPS 再开
 [{"id": 1, "name": "紧急升级", "enabled": true, "priority": 90, "conditions": {...}, "actions": [...], "ownerId": 1, "ownerName": "yezi", "createdAt": 1789...}]
 ```
 
+### 附件磁盘配额 `/admin/attachments`
+
+附件目录（用户上传的附件 + 「缓存封面图」存下来的封面）共用一个磁盘配额。
+超限时服务端会**自动回收**，顺序是：
+
+1. 谁都没引用的文件（孤儿：传了没发、删消息时漏网的）
+2. 还被引用的**缓存封面**（`cached-` 前缀），按修改时间**最旧优先** —— 牺牲的是老通知的封面（变裂图），消息正文不受影响
+3. 仍然超配 → 只在日志里告警。**被消息引用的普通附件永不自动删除**（那是用户数据）
+
+回收时机：启动时一次、之后每 6 小时一次、上传被拒前试一次、以及下面这个手动接口。
+「刚上传还没被消息引用」的文件有 10 分钟宽限期，不会被误删。
+
+#### `GET /admin/attachments` 超级管理员
+
+```json
+{
+  "files": 128, "bytes": 52428800, "bytesText": "50.0 MB",
+  "cachedFiles": 96, "cachedBytes": 41943040, "cachedBytesText": "40.0 MB",
+  "quotaBytes": 524288000, "quotaMb": 500, "quotaBytesText": "500.0 MB",
+  "unlimited": false, "quotaLocked": false,
+  "defaultQuotaMb": 500, "maxQuotaMb": 102400
+}
+```
+
+`quotaLocked: true` 表示配额由环境变量 `ATTACHMENTS_QUOTA_MB` 锁定，改数据库不生效。
+
+#### `PUT /admin/attachments/quota` 超级管理员
+
+```json
+{"quotaMb": 1024}
+```
+
+- `0` = 不限制；上限 102400 MB（100 GB）
+- 非法值返回 `400`；被环境变量锁定返回 `409`
+- 写入 `meta.attachments.quota_mb`，立即生效（不用重启）
+
+#### `POST /admin/attachments/sweep` 超级管理员
+
+手动跑一次回收，返回结果：
+
+```json
+{"removed": 3, "freed": 12582912, "freedText": "12.0 MB", "skippedFresh": 0,
+ "stillOver": false, "unlimited": false, "bytes": 39845888, "bytesText": "38.0 MB", "files": 125}
+```
+
 ---
 
 ## 消息字段

@@ -10,9 +10,7 @@ const { cleanupAttachmentsOfRows } = require('./attachments');
 
 const router = express.Router();
 
-const DATA_DIR = process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : './data';
-const CHANNEL_ICONS_DIR = path.join(DATA_DIR, 'channel-icons');
-const ATTACHMENTS_DIR = path.join(DATA_DIR, 'attachments');
+const { CHANNEL_ICONS_DIR, ATTACHMENTS_DIR } = require('./paths');
 fs.mkdirSync(CHANNEL_ICONS_DIR, { recursive: true });
 
 function rowToChannel(row, opts = {}) {

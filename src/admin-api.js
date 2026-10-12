@@ -91,4 +91,91 @@ router.get('/admin/routes', requireSuper, (req, res) => {
   }));
 });
 
+// ============================================================
+// 附件磁盘配额（/admin/attachments）
+// ============================================================
+// 与上面几个「只读管理页」不同，这里是可写的 —— 但每一步都挂 requireSuper + audit，
+// 且一次只做一件事（看用量 / 改配额 / 手动清理），不搞万能 PATCH。
+const {
+  getQuotaBytes,
+  isQuotaLocked,
+  normalizeQuotaMb,
+  saveQuotaMb,
+  usage,
+  enforceQuota,
+  DEFAULT_QUOTA_MB,
+  MAX_QUOTA_MB,
+  formatBytes,
+} = require('./attachmentQuota');
+const { ATTACHMENTS_DIR } = require('./paths');
+
+/** 附件目录用量 + 当前配额（设置页「存储」分类用） */
+router.get('/admin/attachments', requireSuper, (req, res) => {
+  const u = usage(ATTACHMENTS_DIR);
+  const quotaBytes = getQuotaBytes(db);
+  res.json({
+    files: u.files,
+    bytes: u.bytes,
+    bytesText: formatBytes(u.bytes),
+    cachedFiles: u.cachedFiles,
+    cachedBytes: u.cachedBytes,
+    cachedBytesText: formatBytes(u.cachedBytes),
+    quotaBytes,
+    quotaMb: Math.round(quotaBytes / (1024 * 1024)),
+    quotaBytesText: formatBytes(quotaBytes),
+    unlimited: quotaBytes <= 0,
+    quotaLocked: isQuotaLocked(),
+    defaultQuotaMb: DEFAULT_QUOTA_MB,
+    maxQuotaMb: MAX_QUOTA_MB,
+  });
+});
+
+/** 改配额（MB）。0 = 不限。环境变量设了会返回 locked，改了不生效 */
+router.put('/admin/attachments/quota', requireSuper, (req, res) => {
+  if (isQuotaLocked()) {
+    return res.status(409).json({
+      error: '配额由环境变量 ATTACHMENTS_QUOTA_MB 锁定，请改环境变量',
+      locked: true,
+    });
+  }
+  const mb = normalizeQuotaMb(req.body && req.body.quotaMb);
+  if (mb === null) {
+    return res.status(400).json({
+      error: `配额必须是 0（不限）到 ${MAX_QUOTA_MB} 之间的整数 MB`,
+    });
+  }
+  const before = getQuotaBytes(db);
+  saveQuotaMb(db, mb);
+
+  audit.fromReq(req, {
+    action: 'attachments.set_quota',
+    target: String(mb),
+    meta: { beforeMb: Math.round(before / (1024 * 1024)), afterMb: mb },
+  });
+
+  res.json({ quotaMb: mb, quotaBytes: mb * 1024 * 1024, unlimited: mb === 0 });
+});
+
+/** 手动跑一次回收（返回删了什么、现在用量多少） */
+router.post('/admin/attachments/sweep', requireSuper, (req, res) => {
+  const r = enforceQuota({ db, dir: ATTACHMENTS_DIR, quotaBytes: getQuotaBytes(db) });
+  const u = usage(ATTACHMENTS_DIR);
+  audit.fromReq(req, {
+    action: 'attachments.sweep',
+    target: ATTACHMENTS_DIR,
+    meta: { removed: r.removed, freed: r.freed, stillOver: r.stillOver },
+  });
+  res.json({
+    removed: r.removed,
+    freed: r.freed,
+    freedText: formatBytes(r.freed),
+    skippedFresh: r.skippedFresh,
+    stillOver: r.stillOver,
+    unlimited: r.unlimited,
+    bytes: u.bytes,
+    bytesText: formatBytes(u.bytes),
+    files: u.files,
+  });
+});
+
 module.exports = router;

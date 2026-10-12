@@ -12,9 +12,9 @@ const i18n = require('./serverI18n');
 
 const router = express.Router();
 
-// 附件目录（缓存封面图要往里写）。与 index.js / channels.js 同一套算法：
+// 附件目录（缓存封面图要往里写）。路径统一从 paths.js 取（单一真值）：
 // DB_PATH 的目录就是 data 目录；容器里默认 /app/data
-const ATTACHMENTS_DIR = path.join(process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : './data', 'attachments');
+const { ATTACHMENTS_DIR } = require('./paths');
 
 // ============================================================
 // 模板预览（无鉴权，但限速）

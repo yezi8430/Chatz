@@ -368,6 +368,18 @@
           <span class="settings-arrow">&#x203A;</span>
         </button>
 
+        <!-- 仅超级管理员可见：附件磁盘配额，同样由 refreshUserMgmtVisibility 控制 -->
+        <button class="settings-item hidden" data-page="storage" id="storageNavItem">
+          <span class="settings-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </span>
+          <span class="settings-body">
+            <span class="settings-name">存储</span>
+            <span class="settings-desc">附件与缓存封面的磁盘配额</span>
+          </span>
+          <span class="settings-arrow">&#x203A;</span>
+        </button>
+
         <button class="settings-item" data-page="certs" id="certNavItem">
           <span class="settings-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -477,6 +489,23 @@
         </label>
         <button id="certUploadBtn" class="btn-primary" style="width:100%;margin-top:8px;">上传证书</button>
         <button id="certDeleteBtn" class="btn-danger" style="width:100%;margin-top:6px;">删除证书</button>
+      </div>
+
+      <!-- ============ 存储（仅超级管理员） ============ -->
+      <div id="settingsStorage" class="settings-page hidden">
+        <h4 class="section-title">附件与缓存封面</h4>
+        <div class="storage-usage" id="storageUsage">加载中...</div>
+        <div class="storage-bar"><div class="storage-bar-fill" id="storageBarFill"></div></div>
+        <p class="hint" id="storageHint"></p>
+
+        <h4 class="section-title">磁盘配额</h4>
+        <div class="storage-quota-row">
+          <input id="storageQuotaInput" type="number" min="0" step="1" placeholder="500">
+          <span class="storage-quota-unit">MB</span>
+          <button id="storageQuotaSave" class="btn-primary">保存</button>
+        </div>
+        <p class="hint">填 <b>0</b> 表示不限制。超过配额时会自动回收：先删没人引用的文件，再删最旧的缓存封面（老通知的封面会变裂图，消息本身不受影响）；被消息引用的普通附件永不自动删除。</p>
+        <button id="storageSweepBtn" class="btn-primary" style="width:100%;margin-top:8px;">立即清理</button>
       </div>
 
       <!-- ============ 用户管理（仅超级管理员） ============ -->

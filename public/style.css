@@ -2136,6 +2136,53 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 }
 
 /* ============================================================
+   存储（附件磁盘配额）
+   ============================================================ */
+.storage-usage {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: var(--sp-2);
+}
+[data-theme="dark"] .storage-usage { background: rgba(255, 255, 255, 0.05); }
+.storage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.25);
+  overflow: hidden;
+  margin-bottom: var(--sp-2);
+}
+.storage-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width var(--dur-normal) var(--ease-out);
+}
+.storage-quota-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--sp-2);
+}
+.storage-quota-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+}
+[data-theme="dark"] .storage-quota-row input { background: rgba(255, 255, 255, 0.05); }
+.storage-quota-unit { font-size: 13px; color: var(--text-secondary); }
+.storage-quota-row .btn-primary { width: auto; margin: 0; padding: 8px 16px; }
+
+/* ============================================================
    路由规则
    ============================================================ */
 

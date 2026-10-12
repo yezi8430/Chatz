@@ -2427,6 +2427,7 @@ const SETTINGS_PAGES = {
   security:   { el: 'settingsSecurity',   labelKey: '安全与登录' },
   certs:      { el: 'settingsCerts',      labelKey: 'HTTPS 证书' },
   users:      { el: 'settingsUsers',      labelKey: '用户管理' },
+  storage:    { el: 'settingsStorage',    labelKey: '存储' },
 };
 
 /**
@@ -2500,6 +2501,96 @@ function showSettingsPage(key) {
   if (key === 'security') loadDevices();
   if (key === 'certs') loadCertStatus();
   if (key === 'appearance') loadBackgroundStatus();
+  if (key === 'storage') loadStorageStatus();
+}
+
+// ============ 存储：附件磁盘配额（仅超级管理员） ============
+
+/**
+ * 「存储」子页：附件目录用量 + 磁盘配额
+ *
+ * 数据来自 /admin/attachments（requireSuper）。界面上只给超管入口
+ * （见 refreshUserMgmtVisibility），服务端也挡着。
+ */
+async function loadStorageStatus() {
+  const usageEl = document.getElementById('storageUsage');
+  const hintEl = document.getElementById('storageHint');
+  const fillEl = document.getElementById('storageBarFill');
+  const inputEl = document.getElementById('storageQuotaInput');
+  if (!usageEl) return;
+
+  usageEl.textContent = chatzT('加载中...');
+  try {
+    const s = await api('/admin/attachments');
+
+    const pct = s.unlimited ? 0 : Math.min(100, Math.round((s.bytes / s.quotaBytes) * 100));
+    usageEl.innerHTML =
+      chatzT('已用 <b>{0}</b> / 上限 <b>{1}</b>', [escapeHtml(s.bytesText), s.unlimited ? chatzT('不限') : escapeHtml(s.quotaBytesText)]) +
+      chatzT(' · 共 {0} 个文件，其中缓存封面 {1} 个（{2}）',
+        [s.files, s.cachedFiles, escapeHtml(s.cachedBytesText)]);
+
+    if (fillEl) {
+      fillEl.style.width = pct + '%';
+      // 超 90% 变红提醒，别等写不进了才发现
+      fillEl.style.background = pct >= 90 ? 'var(--danger)' : 'var(--accent)';
+    }
+
+    if (inputEl) inputEl.value = s.unlimited ? 0 : s.quotaMb;
+
+    if (hintEl) {
+      if (s.quotaLocked) {
+        hintEl.innerHTML = chatzT('当前配额由环境变量 <b>ATTACHMENTS_QUOTA_MB</b> 锁定，这里改了不生效。');
+      } else if (s.unlimited) {
+        hintEl.innerHTML = chatzT('未设上限：目录只增不减，建议填一个值（默认 {0} MB）。', [s.defaultQuotaMb]);
+      } else if (pct >= 90) {
+        hintEl.innerHTML = chatzT('<span style="color:var(--danger);">已接近上限，超了会自动回收（先删孤儿，再删最旧的缓存封面）。</span>');
+      } else {
+        hintEl.textContent = chatzT('超限时自动回收：先删没人引用的文件，再删最旧的缓存封面；被消息引用的普通附件永不自动删除。');
+      }
+    }
+  } catch (e) {
+    usageEl.innerHTML = '<span style="color:var(--danger);">' + escapeHtml(e.message || '加载失败') + '</span>';
+  }
+}
+
+/** 保存配额（MB，0 = 不限） */
+async function saveStorageQuota() {
+  const inputEl = document.getElementById('storageQuotaInput');
+  if (!inputEl) return;
+  const mb = parseInt(inputEl.value, 10);
+  if (!Number.isFinite(mb) || mb < 0) { toast(chatzT('请输入 0 或正整数')); return; }
+
+  try {
+    await api('/admin/attachments/quota', {
+      method: 'PUT',
+      body: JSON.stringify({ quotaMb: mb }),
+    });
+    toast(mb === 0 ? chatzT('已设为不限制') : chatzT('配额已保存：{0} MB', [mb]));
+    loadStorageStatus();
+  } catch (e) {
+    toast(e.message || chatzT('保存失败'));
+  }
+}
+
+/** 手动跑一次回收 */
+async function sweepStorage() {
+  const btn = document.getElementById('storageSweepBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('/admin/attachments/sweep', { method: 'POST' });
+    if (r.removed > 0) {
+      toast(chatzT('清理了 {0} 个文件，释放 {1}', [r.removed, r.freedText]));
+    } else if (r.unlimited) {
+      toast(chatzT('当前没有配额上限，无需清理'));
+    } else {
+      toast(chatzT('没有可清理的文件（当前 {0}）', [r.bytesText]));
+    }
+    loadStorageStatus();
+  } catch (e) {
+    toast(e.message || chatzT('清理失败'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ============ 用户管理（仅超级管理员） ============
@@ -2513,6 +2604,9 @@ function showSettingsPage(key) {
 function refreshUserMgmtVisibility() {
   const nav = document.getElementById('userMgmtNavItem');
   if (nav) nav.classList.toggle('hidden', !state.currentUser?.isSuper);
+  // 存储（磁盘配额）同样只有超管能看：接口是 requireSuper
+  const storageNav = document.getElementById('storageNavItem');
+  if (storageNav) storageNav.classList.toggle('hidden', !state.currentUser?.isSuper);
   // 侧栏「管理」入口：仅超管，看全站用户创建的频道 / 应用 / 路由规则
   const adminBtn = document.getElementById('adminBtn');
   if (adminBtn) adminBtn.style.display = state.currentUser?.isSuper ? '' : 'none';
@@ -4440,6 +4534,8 @@ document.addEventListener('DOMContentLoaded', () => {
   bindBackgroundSliders();
   applyBackgroundSettings();
   $('#certDeleteBtn').onclick = deleteCert;
+  $('#storageQuotaSave').onclick = saveStorageQuota;
+  $('#storageSweepBtn').onclick = sweepStorage;
 
   $('#sendBtn').onclick = openSendModal;
   $('#newChannelBtn').onclick = openChannelModal;

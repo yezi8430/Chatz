@@ -23,6 +23,8 @@ const {
   cleanupAttachmentsOfRows,
   sweepOrphanAttachments,
 } = require('./attachments');
+// 附件磁盘配额：超限自动回收（删孤儿 + 最旧的缓存封面）
+const { getQuotaBytes, enforceQuota, usage, formatBytes } = require('./attachmentQuota');
 const { rateLimit } = require('./rateLimit');
 const { detectImageExt } = require('./sanitize');
 const audit = require('./audit');
@@ -66,12 +68,15 @@ const AUTH_TOKEN = global.__AUTH_TOKEN_UNINITIALIZED__
 const PORT = process.env.PORT || 20010;
 const HTTPS_PORT = process.env.HTTPS_PORT || 20443;
 
-const DATA_DIR = process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : './data';
-const ICONS_DIR = path.join(DATA_DIR, 'icons');
-const CHANNEL_ICONS_DIR = path.join(DATA_DIR, 'channel-icons');
-const CERT_DIR = path.join(DATA_DIR, 'certs');
-const BACKGROUND_DIR = path.join(DATA_DIR, 'background');
-const ATTACHMENTS_DIR = path.join(DATA_DIR, 'attachments');
+// 各子目录路径统一从 paths.js 取（单一真值，别再各自算一遍）
+const {
+  DATA_DIR,
+  ICONS_DIR,
+  CHANNEL_ICONS_DIR,
+  CERT_DIR,
+  BACKGROUND_DIR,
+  ATTACHMENTS_DIR,
+} = require('./paths');
 for (const d of [ICONS_DIR, CHANNEL_ICONS_DIR, CERT_DIR, BACKGROUND_DIR, ATTACHMENTS_DIR]) {
   fs.mkdirSync(d, { recursive: true });
 }
@@ -381,7 +386,7 @@ app.use(createCertsRouter({
   onCertsRemoved: stopHttps,
 }));
 app.use(createBackgroundRouter({ backgroundDir: BACKGROUND_DIR }));
-app.use(createAttachmentsRouter({ attachmentsDir: ATTACHMENTS_DIR }));
+app.use(createAttachmentsRouter({ attachmentsDir: ATTACHMENTS_DIR, db }));
 
 // ============================================================
 // 应用
@@ -930,6 +935,29 @@ server.listen(PORT, () => {
   // —— 那些地方不会逐条通知附件，启动时扫一遍兜底
   const swept = sweepOrphanAttachments({ db, attachmentsDir: ATTACHMENTS_DIR });
   if (swept > 0) i18n.log('attachment.sweptOrphan', { n: swept });
+
+  // 磁盘配额回收：目录超了配额就删最不可惜的（孤儿 → 最旧的缓存封面）。
+  // 放在孤儿清理之后跑 —— 那一轮已经删掉一批，这里往往就不用再动了。
+  const quota = getQuotaBytes(db);
+  const u0 = usage(ATTACHMENTS_DIR);
+  if (quota <= 0) {
+    i18n.log('attachment.quotaUnlimited');
+  } else {
+    i18n.log('attachment.quotaBoot', {
+      used: formatBytes(u0.bytes),
+      quota: formatBytes(quota),
+      files: u0.files,
+      cached: u0.cachedFiles,
+    });
+    enforceQuota({ db, attachmentsDir: ATTACHMENTS_DIR, quotaBytes: quota });
+  }
+  // 之后每 6 小时兜一次（和审计裁剪同一节奏）。unref：别让这个定时器
+  // 成为进程不退出的理由
+  const quotaTimer = setInterval(() => {
+    const q = getQuotaBytes(db);
+    if (q > 0) enforceQuota({ db, attachmentsDir: ATTACHMENTS_DIR, quotaBytes: q });
+  }, 6 * 3600 * 1000);
+  quotaTimer.unref();
 
   // 审计日志裁剪：保留 ${audit.RETENTION_DAYS} 天 / 最多 ${audit.MAX_ROWS} 条
   audit.prune();

@@ -47,6 +47,7 @@ if you only use the web UI, the server alone is enough:
 | **Routing engine** | 11 conditions × 8 actions: change priority, add tags, silence, forward, drop, call back |
 | **Aggregation** | Messages that share channel + app + title within 5 minutes collapse into one (a single card lives at most 30 minutes so it cannot renew forever — see `AGG_MAX_LIFETIME_MS`; the parent card shows no cover image, images live in the expanded children) |
 | **Attachments** | Images / files upload to `/attachments/` and are referenced from the body or `extras`; deleting a message reclaims them |
+| **Disk quota** | The attachments directory has a configurable limit (500 MB by default). Over the limit it reclaims automatically: orphans first, then the oldest cached covers. Referenced user attachments are never auto-deleted |
 | **Custom background** | Each user uploads their own background image; the accent color is sampled from it |
 | **Settings follow the account** | Background blur / dim, light-dark theme, UI language and image-at-bottom are stored server-side (`GET/PUT /user/settings`), so signing in on another device fetches them once and everything matches |
 | **Built-in HTTPS** | Upload a certificate to enable WSS, hot-reload supported |

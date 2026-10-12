@@ -6,6 +6,9 @@ const { detectImageExt } = require('./sanitize');
 const { rateLimit } = require('./rateLimit');
 const audit = require('./audit');
 const i18n = require('./serverI18n');
+// 引用查询 / 宽限期：孤儿清理和磁盘配额回收共用一套口径，见 attachmentRefs.js
+const { attachmentNamesIn, referencedAttachmentNames, ORPHAN_GRACE_MS } = require('./attachmentRefs');
+const { getQuotaBytes, enforceQuota } = require('./attachmentQuota');
 
 /**
  * 「刚传上来、还没被任何消息引用」的宽限期
@@ -20,8 +23,9 @@ const i18n = require('./serverI18n');
  *
  * ⚠️ 这个宽限**只加在全量 sweep 上**，不加在 cleanupMessageAttachments（删消息那条路）：
  *    那边是显式删除，消息已经软删、引用关系当场就能查清，没有"还没来得及引用"这回事。
+ *
+ * 常量本体在 attachmentRefs.js（配额回收也要用同一个值）。
  */
-const ORPHAN_GRACE_MS = 10 * 60 * 1000;
 
 /**
  * 附件上传
@@ -46,7 +50,8 @@ const BLOCKED_EXTS = new Set([
 // ── 容量上限与目录统计 ──
 // 实现在 attachmentLimits.js（零依赖，缓存封面图那边复用同一套口径，
 // 而离线 verify 脚本要能不带 db 依赖地 require 它）
-const { MAX_FILE_BYTES, MAX_TOTAL_BYTES, dirSize } = require('./attachmentLimits');
+const { MAX_FILE_BYTES, MAX_TOTAL_BYTES, dirSize, bumpCachedSize, resetCachedSize } =
+  require('./attachmentLimits');
 
 function sanitizeName(raw) {
   const base = path.basename(String(raw || ''))
@@ -59,7 +64,7 @@ function extOf(name) {
   return m ? m[1].toLowerCase() : '';
 }
 
-function createAttachmentsRouter({ attachmentsDir }) {
+function createAttachmentsRouter({ attachmentsDir, db = null }) {
   fs.mkdirSync(attachmentsDir, { recursive: true });
 
   const router = express.Router();
@@ -85,6 +90,23 @@ function createAttachmentsRouter({ attachmentsDir }) {
           error: `文件超过 ${MAX_FILE_BYTES / 1048576}MB 上限`,
         });
       }
+
+      // 超上限时**先试着回收**（删孤儿 + 最旧的缓存封面），回收完还超才拒绝。
+      // 没有这一步的话，目录顶到天花板就只能人工去删旧消息。
+      if (dirSize(attachmentsDir) + body.length > MAX_TOTAL_BYTES) {
+        if (db) {
+          const swept = enforceQuota({
+            db,
+            dir: attachmentsDir,
+            quotaBytes: getQuotaBytes(db),
+          });
+          if (swept.removed > 0) {
+            // 删过文件：作废目录大小缓存，重新算一次
+            resetCachedSize();
+          }
+        }
+      }
+
       if (dirSize(attachmentsDir) + body.length > MAX_TOTAL_BYTES) {
         // 507 Insufficient Storage：服务端没地方存了，和 413（单个太大）区分开
         return res.status(507).json({
@@ -102,7 +124,8 @@ function createAttachmentsRouter({ attachmentsDir }) {
       fs.writeFileSync(path.join(attachmentsDir, filename), body);
       // 立刻累加进缓存：否则 5 秒内的连续上传都读到"还没算上本次"的旧值，
       // 一次能绕过总量检查好几个文件
-      if (cachedSize != null) cachedSize += body.length;
+      // （以前这里直接写私有变量 cachedSize，会抛 ReferenceError，见 bumpCachedSize 的说明）
+      bumpCachedSize(body.length);
 
       const isImage = !!imageExt && imageExt !== 'svg';
 
@@ -132,21 +155,9 @@ function createAttachmentsRouter({ attachmentsDir }) {
 /**
  * 从一条消息里揪出它引用的附件文件名
  *
- * 正文（markdown 链接 / 裸 URL）和 extras 里都可能有，两边都扫。
- *
- * ⚠️ **agg_children 也要扫**：折叠消息的子项各自带着自己的 extras / 正文，
- *    附件引用（比如缓存下来的封面图）就藏在那一列里。漏掉它的话，
- *    「删掉引用这条消息」时别的消息里还在用的文件会被误删，
- *    sweep 也会把还在用的文件当孤儿清掉。
+ * 实现挪到了 attachmentRefs.js（孤儿清理和磁盘配额回收共用），这里只保留
+ * 本模块用到的几个函数。
  */
-function attachmentNamesIn(row) {
-  const text = (row.message || '') + ' ' + (row.extras || '') + ' ' + (row.agg_children || '');
-  const names = new Set();
-  const re = /\/attachments\/([A-Za-z0-9][A-Za-z0-9._-]*)/g;
-  let m;
-  while ((m = re.exec(text)) !== null) names.add(m[1]);
-  return names;
-}
 
 /** 还有别的（未删除的）消息在引用这个附件吗 */
 function isStillReferenced(db, name) {
@@ -252,17 +263,8 @@ function sweepOrphanAttachments({ db, attachmentsDir }) {
   }
   if (files.length === 0) return 0;
 
-  const referenced = new Set();
-  const rows = db.prepare(`
-    SELECT message, extras, agg_children FROM messages
-    WHERE deleted_at IS NULL
-      AND (message LIKE '%/attachments/%'
-           OR extras LIKE '%/attachments/%'
-           OR agg_children LIKE '%/attachments/%')
-  `).all();
-  for (const row of rows) {
-    for (const name of attachmentNamesIn(row)) referenced.add(name);
-  }
+  // 引用集合：和磁盘配额回收共用同一个函数（口径必须一致，见 attachmentRefs.js）
+  const referenced = referencedAttachmentNames(db);
 
   const now = Date.now();
   let removed = 0;
