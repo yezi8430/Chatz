@@ -27,6 +27,10 @@ function rowToChannel(row, opts = {}) {
     unreadCount: opts.unreadCount != null ? opts.unreadCount : undefined,
     subscribed: opts.subscribed != null ? opts.subscribed : undefined,
     muted: opts.muted != null ? !!opts.muted : undefined,
+    // 是不是这个用户的「每日摘要」容器频道。客户端据此把它从频道列表里收起来，
+    // 改在设置页显示「今日摘要」入口 —— 免得每个人的抽屉里都多一个系统频道。
+    // 默认 false：只有 GET /channel（按用户查过 user_digest_channels）会给真值。
+    isDigest: opts.isDigest != null ? !!opts.isDigest : false,
   };
 }
 
@@ -57,6 +61,12 @@ router.get('/channel', (req, res) => {
       AND r.read_at IS NULL
   `);
 
+  // 摘要容器频道（每日摘要用）。一人一个，私有，客户端不列在抽屉里。
+  const digestIds = new Set(
+    db.prepare('SELECT channel_id FROM user_digest_channels WHERE user_id = ?')
+      .all(userId).map(r => r.channel_id)
+  );
+
   const result = rows.map(r => {
     const subscribed = !!r.subscribed;
     // ⚠️ 未订阅的频道**不给未读数**（2026-09-30 改）。
@@ -72,6 +82,7 @@ router.get('/channel', (req, res) => {
       unreadCount: unread,
       subscribed,
       muted: r.muted,
+      isDigest: digestIds.has(r.id),
     });
   });
 

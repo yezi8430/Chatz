@@ -265,6 +265,27 @@ const DICT = {
     zh: '⚠️ 附件目录仍超出配额：已用 {used} / 上限 {quota}（引用中的用户附件不会被自动删除，请手动清理旧消息）',
     en: '⚠️ attachments dir still over quota: {used} used / {quota} limit (referenced user attachments are never auto-deleted — clean up old messages manually)',
   },
+  // ── 每日摘要 ──
+  'digest.channelCreated': {
+    zh: '📰 为用户 {userId} 创建每日摘要频道（id={channelId}）',
+    en: '📰 created digest channel for user {userId} (id={channelId})',
+  },
+  'digest.appCreated': {
+    zh: '📰 为用户 {userId} 创建摘要署名应用（id={appId}）',
+    en: '📰 created digest signing app for user {userId} (id={appId})',
+  },
+  'digest.sent': {
+    zh: '📰 已发送每日摘要给用户 {userId}：{total} 条（优先级 {priority}）',
+    en: '📰 digest sent to user {userId}: {total} message(s) (priority {priority})',
+  },
+  'digest.sendFailed': {
+    zh: '⚠️ 每日摘要发送失败（用户 {userId}）：{msg}',
+    en: '⚠️ failed to send digest (user {userId}): {msg}',
+  },
+  'digest.tickFailed': {
+    zh: '⚠️ 每日摘要扫描到用户 {userId} 时出错（已跳过，不影响其他用户）：{msg}',
+    en: '⚠️ digest scan failed at user {userId} (skipped, others unaffected): {msg}',
+  },
   // ── 缓存封面图（src/imageCache.js）──
   'imageCache.dirFull': {
     zh: '⚠️ 附件目录已达容量上限，跳过缓存封面图（消息照发，图保持外链）',

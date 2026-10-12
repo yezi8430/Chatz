@@ -8,6 +8,8 @@ const { rateLimit, rateLimitLogin } = require('./rateLimit');
 const audit = require('./audit');
 const ws = require('./ws');
 const i18n = require('./serverI18n');
+// 每日摘要：设置默认值 + 立即运行接口都在这儿（设置项本身在 SETTINGS_SPEC）
+const { digestSettingsOf, sendDigest } = require('./digest');
 const router = express.Router();
 
 /**
@@ -976,13 +978,72 @@ const SETTINGS_SPEC = {
   bgDim:        { kind: 'int', min: 0, max: 100 },
   accentFromBg: { kind: 'bool' },
   imageBottom:  { kind: 'bool' },
+
+  // ── 每日摘要（digest）──
+  // 嵌套对象：这一组键本来就是一起用的（开关 + 时间 + 优先级 + 范围），
+  // 拆成 digestEnabled / digestTime / digestPriority… 七个平级键会把
+  // SETTINGS_SPEC 撑爆，前端也要一次推七个。合成一个对象，白名单照旧逐键校验。
+  //
+  // ⚠️ 容器频道 id **不在这里**（那是服务端自有数据，见 user_digest_channels 表），
+  //    客户端写不进来，也就没法把摘要指到别人的私有频道去。
+  //
+  // ⚠️ time 用**服务器时区**（容器 TZ）解释。没做时区选择器：
+  //    家庭 NAS 就一个时区，为了理论上的正确性加一层选择器不值得。
+  //    设置页会把「按服务器时区」明写出来，别让用户猜。
+  digest: {
+    kind: 'object',
+    def: {
+      enabled: false,
+      time: '08:00',
+      priority: 8,
+      onlyUnread: true,
+      includeMuted: true,
+      excludeOwn: true,
+      maxItems: 20,
+    },
+    keys: {
+      enabled:      { kind: 'bool' },
+      time:         { kind: 'time' },
+      priority:     { kind: 'int', min: 0, max: 10 },
+      onlyUnread:   { kind: 'bool' },
+      includeMuted: { kind: 'bool' },
+      excludeOwn:   { kind: 'bool' },
+      maxItems:     { kind: 'int', min: 1, max: 100 },
+    },
+  },
 };
+
+/** HH:mm，且是真时间（小时 0-23、分钟 0-59）—— 25:99 / 8:00 / "早上八点" 一律不收 */
+function coerceTime(v) {
+  if (typeof v !== 'string') return undefined;
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v.trim());
+  return m ? `${m[1]}:${m[2]}` : undefined;
+}
+
+/** 递归校验一个对象设置项：只收白名单内的子键，其余静默丢弃 */
+function coerceObjectSetting(spec, v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out = {};
+  for (const [k, sub] of Object.entries(spec.keys)) {
+    const cv = coerceSettingByKind(sub, v[k]);
+    if (cv !== undefined) out[k] = cv;
+  }
+  return out;
+}
 
 /** 单键校验：不合格返回 undefined（调用方据此丢弃），合格返回归一化后的值 */
 function coerceSetting(key, v) {
   const spec = SETTINGS_SPEC[key];
   if (!spec) return undefined;          // 没登记过的键一律不收
+  return coerceSettingByKind(spec, v);
+}
+
+/** 按 spec.kind 分派校验（object 走递归，其余是标量） */
+function coerceSettingByKind(spec, v) {
   if (v === undefined || v === null) return undefined;
+
+  if (spec.kind === 'object') return coerceObjectSetting(spec, v);
+  if (spec.kind === 'time') return coerceTime(v);
 
   if (spec.kind === 'enum') {
     return spec.values.includes(v) ? v : undefined;
@@ -1046,6 +1107,12 @@ router.put('/user/settings',
     for (const k of Object.keys(body)) {
       const v = coerceSetting(k, body[k]);
       if (v === undefined) bad.push(k);
+      // 对象类型的键（目前只有 digest）**按子键合并**，不整份替换：
+      // 前端改一个开关就只推 { digest: { enabled: true } }，
+      // 整份替换会把同一对象里的 time / priority 一起抹掉。
+      else if (SETTINGS_SPEC[k].kind === 'object') {
+        merged[k] = { ...(merged[k] || {}), ...v };
+      }
       else merged[k] = v;
     }
     if (bad.length) {
@@ -1069,6 +1136,50 @@ router.delete('/user/settings', requireAuth, (req, res) => {
   db.prepare('UPDATE users SET settings = NULL WHERE id = ?').run(req.user.id);
   res.json({ ok: true, settings: {} });
 });
+
+// ============================================================
+// 每日摘要：状态查询（给客户端判断「今日摘要」入口显隐）
+// ============================================================
+// 为什么单开一个接口而不用 /user/settings：客户端（Android）本来就不读
+// /user/settings（它的偏好全在本地），为这一个字段拉整份设置不值当。
+// 而且摘要频道是懒创建的，channelId 顺带返回，客户端不用自己从频道列表里翻。
+router.get('/user/digest', requireAuth, (req, res) => {
+  const user = db.prepare('SELECT id, settings FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  const cfg = digestSettingsOf(user);
+  res.json({
+    enabled: !!cfg.enabled,
+    time: cfg.time,
+    priority: cfg.priority,
+    channelId: digestChannelId(req.user.id),
+  });
+});
+
+// ============================================================
+// 每日摘要：立即跑一次
+// ============================================================
+// 「我现在就想看一份」—— 也是 verify-full.sh 验证摘要功能的入口
+// （不然为了测一下得把时间改成当前分钟再等最多 60 秒）。
+//
+// ⚠️ force 跳过幂等：手动触发允许一天发多份，定时那条路仍然一天一份。
+// ⚠️ 不需要 enabled=true：没开也能跑（先看看长什么样再决定开不开），
+//    但频道会因此被懒创建出来 —— 这是有意的，用户马上就会在界面上看到它。
+router.post('/user/digest/run',
+  requireAuth,
+  rateLimit({ windowMs: 60000, max: 5, name: 'user.digest.run', message: '操作过于频繁，请稍后再试' }),
+  (req, res) => {
+    const user = db.prepare('SELECT id, username, settings FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ error: '用户不存在' });
+    const cfg = digestSettingsOf(user);
+    const r = sendDigest(user, cfg, { force: true });
+    res.json({
+      sent: r.sent,
+      reason: r.reason || null,
+      messageId: r.messageId || null,
+      total: r.total || 0,
+    });
+  }
+);
 
 // ============================================================
 // 修改用户名

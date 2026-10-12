@@ -14,6 +14,7 @@ var chatzT = (typeof window.chatzT === 'function')
 const ICON_CHANNEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>';
 const ICON_MAILBOX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 8l9 6 9-6"/></svg>';
 const ICON_MUTED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+const ICON_DIGEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v5H4z"/><path d="M4 12h16v4H4z"/><path d="M4 20h9"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
 
 const state = {
@@ -337,6 +338,15 @@ async function loadUserSettings() {
     merged[k] = remote[k];
   }
   curSettings = merged;
+
+  // 每日摘要的开关也在这儿顺手记下来：侧栏「今日摘要」入口要靠它决定显隐
+  // （关掉开关就隐藏，频道和历史仍留着）。不额外发请求，复用这次拉取。
+  if (remote.digest && typeof remote.digest === 'object') {
+    state.digestEnabled = !!remote.digest.enabled;
+    state.digest = { ...DIGEST_DEFAULTS, ...remote.digest };
+  } else {
+    state.digestEnabled = false;
+  }
 
   // 首次迁移：本地有、服务端没有的键，把本地值补上去。
   //
@@ -678,6 +688,8 @@ function updateUserMini() {
 
 async function loadChannels() {
   state.channels = (await api('/channel')) || [];
+  // 摘要容器频道：抽屉里不按普通频道列，改成一个独立入口（见 renderChannels）
+  state.digestChannel = state.channels.find(c => c.isDigest) || null;
   renderChannels();
   populateSendChannelSelect();
 }
@@ -919,6 +931,9 @@ function renderChannels() {
   list.appendChild(allItem);
 
   for (const ch of state.channels) {
+    // 「每日摘要」容器频道不按普通频道列 —— 它由系统生成，列在抽屉里
+    // 就是每个人多一个看不懂的频道。入口在下面单独给。
+    if (ch.isDigest) continue;
     const el = document.createElement('div');
     el.className = 'ch-item' + (state.currentChannelId === ch.id ? ' active' : '');
     const unread = state.unreadByChannel[ch.id] || 0;
@@ -940,6 +955,23 @@ function renderChannels() {
     el.oncontextmenu = (e) => openChannelMenu(e, ch);
     el.onclick = () => switchChannel(ch.id);
     list.appendChild(el);
+  }
+
+  // 「今日摘要」入口：开了摘要才显示（关了就隐藏，频道和历史仍留着）。
+  // 没开过的人世界里没有这个条目 —— 频道是懒创建的。
+  // 例外：没开但手动生成过一份（state.digestReveal），否则频道建了却看不见。
+  if (state.digestChannel && (state.digestEnabled || state.digestReveal)) {
+    const dc = state.digestChannel;
+    const dUnread = state.unreadByChannel[dc.id] || 0;
+    const dItem = document.createElement('div');
+    dItem.className = 'ch-item' + (state.currentChannelId === dc.id ? ' active' : '');
+    dItem.innerHTML = `
+      <span class="icon">${ICON_DIGEST}</span>
+      <span class="name">${chatzT('今日摘要')}</span>
+      ${dUnread > 0 ? `<span class="badge">${dUnread > 99 ? '99+' : dUnread}</span>` : ''}
+    `;
+    dItem.onclick = () => switchChannel(dc.id);
+    list.appendChild(dItem);
   }
 }
 
@@ -2428,6 +2460,13 @@ const SETTINGS_PAGES = {
   certs:      { el: 'settingsCerts',      labelKey: 'HTTPS 证书' },
   users:      { el: 'settingsUsers',      labelKey: '用户管理' },
   storage:    { el: 'settingsStorage',    labelKey: '存储' },
+  digest:     { el: 'settingsDigest',     labelKey: '每日摘要' },
+};
+
+/** 每日摘要的服务端默认值（和 src/digestCore.js 的 DEFAULT_DIGEST 保持一致） */
+const DIGEST_DEFAULTS = {
+  enabled: false, time: '08:00', priority: 8,
+  onlyUnread: true, includeMuted: true, excludeOwn: true, maxItems: 20,
 };
 
 /**
@@ -2502,6 +2541,80 @@ function showSettingsPage(key) {
   if (key === 'certs') loadCertStatus();
   if (key === 'appearance') loadBackgroundStatus();
   if (key === 'storage') loadStorageStatus();
+  if (key === 'digest') loadDigestSettings();
+}
+
+// ============ 每日摘要（用户级功能） ============
+
+/** 拉一次设置并把值铺到表单上（digest 是对象，逐项取） */
+async function loadDigestSettings() {
+  let d = { ...DIGEST_DEFAULTS };
+  try {
+    const r = await api('/user/settings');
+    if (r && r.settings && r.settings.digest) d = { ...d, ...r.settings.digest };
+  } catch (e) {
+    toast(e.message || chatzT('加载失败'));
+    return;
+  }
+  $('#digestEnabled').checked = !!d.enabled;
+  $('#digestTime').value = /^\d{2}:\d{2}$/.test(d.time) ? d.time : DIGEST_DEFAULTS.time;
+  $('#digestPriority').value = d.priority;
+  $('#digestPriorityVal').textContent = String(d.priority);
+  $('#digestOnlyUnread').checked = !!d.onlyUnread;
+  $('#digestIncludeMuted').checked = !!d.includeMuted;
+  $('#digestExcludeOwn').checked = !!d.excludeOwn;
+  $('#digestMaxItems').value = d.maxItems;
+  // 侧栏入口的显隐依据（loadUserSettings 也会设，这里再设一次保证最新）
+  state.digestEnabled = !!d.enabled;
+  state.digest = d;
+}
+
+/** 保存：只推 digest 这一个键（服务端按子键合并，不会抹掉同对象里的其它项） */
+async function saveDigestSettings() {
+  const body = {
+    digest: {
+      enabled: $('#digestEnabled').checked,
+      time: $('#digestTime').value,
+      priority: parseInt($('#digestPriority').value, 10),
+      onlyUnread: $('#digestOnlyUnread').checked,
+      includeMuted: $('#digestIncludeMuted').checked,
+      excludeOwn: $('#digestExcludeOwn').checked,
+      maxItems: parseInt($('#digestMaxItems').value, 10),
+    },
+  };
+  try {
+    await api('/user/settings', { method: 'PUT', body: JSON.stringify(body) });
+    toast(chatzT('已保存'));
+    state.digestEnabled = body.digest.enabled;
+    state.digest = { ...DIGEST_DEFAULTS, ...body.digest };
+    // 开着的抽屉/频道列表要跟着变（isDigest 频道的显隐）—— 简单起见刷新页面数据
+    if (typeof loadChannels === 'function') loadChannels();
+  } catch (e) {
+    toast(e.message || chatzT('保存失败'));
+  }
+}
+
+/** 立即生成一份摘要（不受时间限制，也不占用当天那一份） */
+async function runDigestNow() {
+  const btn = $('#digestRunBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('/user/digest/run', { method: 'POST' });
+    // 没开摘要但手动生成过：也给个入口去看（否则频道建了却哪儿都看不到）
+    if (r && r.sent) state.digestReveal = true;
+    if (r && r.sent) {
+      toast(chatzT('已生成 {0} 条，去「每日摘要」频道看', [r.total]));
+    } else if (r && r.reason === 'empty') {
+      toast(chatzT('过去 24 小时没有可汇总的消息'));
+    } else {
+      toast(chatzT('生成失败') + (r && r.reason ? '：' + r.reason : ''));
+    }
+    if (typeof loadChannels === 'function') loadChannels();
+  } catch (e) {
+    toast(e.message || chatzT('生成失败'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ============ 存储：附件磁盘配额（仅超级管理员） ============
@@ -4536,6 +4649,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#certDeleteBtn').onclick = deleteCert;
   $('#storageQuotaSave').onclick = saveStorageQuota;
   $('#storageSweepBtn').onclick = sweepStorage;
+  $('#digestSaveBtn').onclick = saveDigestSettings;
+  $('#digestRunBtn').onclick = runDigestNow;
+  // 优先级滑块旁的实时数字
+  $('#digestPriority').oninput = (e) => { $('#digestPriorityVal').textContent = e.target.value; };
 
   $('#sendBtn').onclick = openSendModal;
   $('#newChannelBtn').onclick = openChannelModal;

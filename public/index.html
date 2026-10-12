@@ -380,6 +380,18 @@
           <span class="settings-arrow">&#x203A;</span>
         </button>
 
+        <!-- 每日摘要：所有登录用户都可见（是用户级功能，不是超管的） -->
+        <button class="settings-item" data-page="digest" id="digestNavItem">
+          <span class="settings-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v4H4z"/><path d="M4 12h16v4H4z"/><path d="M4 20h10"/></svg>
+          </span>
+          <span class="settings-body">
+            <span class="settings-name">每日摘要</span>
+            <span class="settings-desc">定时汇总未读消息，绕过勿扰</span>
+          </span>
+          <span class="settings-arrow">&#x203A;</span>
+        </button>
+
         <button class="settings-item" data-page="certs" id="certNavItem">
           <span class="settings-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -506,6 +518,49 @@
         </div>
         <p class="hint">填 <b>0</b> 表示不限制。超过配额时会自动回收：先删没人引用的文件，再删最旧的缓存封面（老通知的封面会变裂图，消息本身不受影响）；被消息引用的普通附件永不自动删除。</p>
         <button id="storageSweepBtn" class="btn-primary" style="width:100%;margin-top:8px;">立即清理</button>
+      </div>
+
+      <!-- ============ 每日摘要 ============ -->
+      <div id="settingsDigest" class="settings-page hidden">
+        <h4 class="section-title">每日摘要</h4>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input id="digestEnabled" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>每天给我发一份未读消息汇总</span>
+        </label>
+        <p class="hint">开启后会建一个私有的「每日摘要」频道（只有你能看），摘要落在里面。关掉开关只是不再生成、也不显示入口，历史仍会保留。</p>
+
+        <div class="digest-row">
+          <label for="digestTime">发送时间</label>
+          <input id="digestTime" type="time" value="08:00">
+          <span class="hint" style="margin:0;">按服务器时区</span>
+        </div>
+
+        <div class="digest-row">
+          <label for="digestPriority">优先级</label>
+          <input id="digestPriority" type="range" min="0" max="10" step="1" value="8">
+          <span id="digestPriorityVal" class="digest-num">8</span>
+        </div>
+        <p class="hint">优先级高更可能穿透系统勿扰（Android 的「仅优先级」模式）。App 内的勿扰定时段会被摘要直接绕过；系统级勿扰需要你在系统设置里给 Chatz 放行。</p>
+
+        <h4 class="section-title">汇总范围</h4>
+        <label class="digest-check">
+          <input id="digestOnlyUnread" type="checkbox"><span>只汇总未读（已读的不再推）</span>
+        </label>
+        <label class="digest-check">
+          <input id="digestIncludeMuted" type="checkbox"><span>包含静音频道的消息</span>
+        </label>
+        <label class="digest-check">
+          <input id="digestExcludeOwn" type="checkbox"><span>排除我自己发的</span>
+        </label>
+        <div class="digest-row">
+          <label for="digestMaxItems">最多列出</label>
+          <input id="digestMaxItems" type="number" min="1" max="100" step="1" value="20">
+          <span class="hint" style="margin:0;">条（超出提示「还有 N 条」）</span>
+        </div>
+
+        <button id="digestSaveBtn" class="btn-primary" style="width:100%;margin-top:8px;">保存设置</button>
+        <button id="digestRunBtn" class="btn-primary" style="width:100%;margin-top:6px;">立即生成一份</button>
+        <p class="hint">「立即生成」用来看看效果，不受时间限制，也不占用当天那一份。</p>
       </div>
 
       <!-- ============ 用户管理（仅超级管理员） ============ -->

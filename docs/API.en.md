@@ -702,6 +702,19 @@ omitted keys keep their current value). Returns the full merged settings.
 | `bgDim` | integer | 0 – 100 | background dim (%) |
 | `accentFromBg` | boolean | | extract the accent colour from the background image |
 | `imageBottom` | boolean | | put the message image at the bottom of the card |
+| `digest` | object | see below | daily digest (**merged per sub-key**, not replaced wholesale) |
+
+`digest` sub-keys:
+
+| Sub-key | Type | Values | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | | on / off |
+| `time` | string | `HH:mm` | time of day, **in the server's timezone** |
+| `priority` | integer | 0 – 10 | priority of the digest message (default `8`, used to get past DND / mute) |
+| `onlyUnread` | boolean | | only unread messages (default `true`) |
+| `includeMuted` | boolean | | include muted channels (default `true`) |
+| `excludeOwn` | boolean | | exclude your own messages (default `true`) |
+| `maxItems` | integer | 1 – 100 | how many items to list (default `20`, overflow becomes "N more") |
 
 - Only the keys listed above are accepted; an unknown key → `400 未知的设置项：xxx`
 - Wrong type or out of range (e.g. `bgBlur: 999`, `theme: "blue"`) → `400 设置项取值不合法：xxx`
@@ -736,6 +749,56 @@ Clear every preference; clients fall back to their own defaults.
 >
 > Someone switching their own phone to English does not mean the container logs
 > should switch to English. The two never overwrite each other.
+
+### `GET /user/digest` logged in
+
+The **daily digest** state of the current account. Clients use it to decide whether
+to show a "today's digest" entry.
+
+```json
+{ "enabled": true, "time": "08:00", "priority": 8, "channelId": 12 }
+```
+
+- `enabled` — the switch. When off, clients hide the entry (digests already sent stay
+  in the container channel and are visible again after re-enabling)
+- `time` — `HH:mm`, interpreted in the **server's timezone** (container `TZ`);
+  there is no timezone picker
+- `priority` — priority of the digest message, used to get past DND / mute
+- `channelId` — the lazily created container channel id; `null` if it was never created
+
+### `POST /user/digest/run` logged in (limited to 5 / minute)
+
+Build one digest right now — "I want to see what it looks like".
+
+```json
+// response (there is something to summarise)
+{ "ok": true, "sent": true, "messageId": 431, "total": 7 }
+
+// response (nothing to summarise in the last 24 h → nothing sent)
+{ "ok": true, "sent": false, "reason": "empty" }
+```
+
+- ⚠️ Skips the "already sent today" idempotency check, so it can be run several times
+  a day; **the scheduled path still sends at most one per day**
+- ⚠️ **Does not require `enabled=true`** — you can preview it before enabling;
+  the cost is that the container channel gets created
+- Nothing to summarise in the last 24 h → `sent: false, reason: "empty"`, no noise
+
+### How the daily digest works
+
+| Piece | Notes |
+|---|---|
+| Container channel | **one private channel per user**, subscribed by that user only. Message visibility is per channel subscription, so posting a digest into a shared channel would expose your unread list to everyone |
+| Lazy creation | The channel and its signing app are created the first time a digest is sent; turning the switch off only stops generating new ones — the channel and its history stay |
+| Scheduling | A once-a-minute sweep with a single rule: **today's set time has passed and today's digest has not been sent → send**. A missed minute, a restart, or a full day of downtime is all covered automatically |
+| Idempotency | Recorded in `user_digest_sent` per day; a restart never re-sends the same day |
+| Contents | The last 24 h of messages from **subscribed channels**, not deleted and not archived, grouped by channel; all digest container channels are excluded (otherwise yesterday's digest lands inside today's) |
+| Priority | Uses `digest.priority` (default `8`) with `noAgg` + `skipRules`: a catch-up run and the scheduled run may fall in the same aggregation window, and the user's own routing rules (e.g. "silent below priority 8") would swallow the digest |
+| Payload | `extras.digest = true` plus a structured `extras.items`. Clients use it to **bypass local mute** — a digest exists to be read later, so muting it defeats the purpose |
+
+> ⚠️ The digest only bypasses the **in-app** mute, not the OS-level Do Not Disturb:
+> a normal app cannot break through system DND. It relies on a high-importance
+> channel plus the user allowing it in the system settings.
 
 ### `PATCH /user/profile` logged in
 

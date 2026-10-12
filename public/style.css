@@ -2183,6 +2183,47 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 .storage-quota-row .btn-primary { width: auto; margin: 0; padding: 8px 16px; }
 
 /* ============================================================
+   每日摘要
+   ============================================================ */
+.digest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--sp-2);
+  font-size: 13px;
+  color: var(--text);
+}
+.digest-row > label { min-width: 64px; color: var(--text-secondary); }
+.digest-row input[type="time"],
+.digest-row input[type="number"] {
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+}
+[data-theme="dark"] .digest-row input[type="time"],
+[data-theme="dark"] .digest-row input[type="number"] { background: rgba(255, 255, 255, 0.05); }
+.digest-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.digest-num {
+  min-width: 20px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.digest-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.digest-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ============================================================
    路由规则
    ============================================================ */
 

@@ -679,6 +679,35 @@ function migrate(db) {
       dbEpoch = { value };
       note('生成库纪元 db_epoch');
     }
+
+    // ── 每日摘要（digest）的两张表 ──
+    //
+    // 为什么不把容器频道 id 塞进 users.settings：那是**用户可写**的 JSON
+    // （PUT /user/settings），存进去等于让客户端能把它指向任意频道 ——
+    // 包括别人的私有频道。所以容器 id 放这张**服务端自有**的表。
+    //
+    // 为什么摘要消息非要一个容器：消息可见性是按**频道订阅**算的，
+    // 发到默认频道（id=1，人人订阅）会把 A 的未读摘要暴露给 B。
+    // 每人一个私有频道，只有本人能读，正好复用未读/WS/通知全链路。
+    //
+    // sent 表做幂等：定时器每分钟扫一遍，服务端重启还要补发，
+    // 只靠内存状态会重复发。「今天发过没有」必须落库。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_digest_channels (
+        user_id    INTEGER PRIMARY KEY,
+        channel_id INTEGER NOT NULL
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_digest_sent (
+        user_id INTEGER NOT NULL,
+        day     TEXT    NOT NULL,
+        sent_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, day)
+      )
+    `);
+    // ⚠️ 不调 note()：CREATE TABLE IF NOT EXISTS 每次启动都跑，调了就等于
+    //    每次启动都往 migrate.applied 里塞一条，日志会被这句无信息量的话污染。
     global.__DB_EPOCH__ = dbEpoch.value;
   });
 

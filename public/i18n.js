@@ -236,6 +236,31 @@
     'HTTPS 证书': 'HTTPS certificate',
     '存储': 'Storage',
     '附件与缓存封面的磁盘配额': 'Disk quota for attachments and cached covers',
+    '每日摘要': 'Daily digest',
+    '定时汇总未读消息，绕过勿扰': 'A timed summary of unread messages that cuts through do-not-disturb',
+    '今日摘要': "Today's digest",
+    // ---- 每日摘要 ----
+    '每天给我发一份未读消息汇总': 'Send me a summary of unread messages every day',
+    '开启后会建一个私有的「每日摘要」频道（只有你能看），摘要落在里面。关掉开关只是不再生成、也不显示入口，历史仍会保留。':
+      'Turning this on creates a private “Daily digest” channel (only you can see it) where the digests land. Turning it off only stops generation and hides the entry — the history stays.',
+    '发送时间': 'Send at',
+    '按服务器时区': 'server time zone',
+    '优先级': 'Priority',
+    '优先级高更可能穿透系统勿扰（Android 的「仅优先级」模式）。App 内的勿扰定时段会被摘要直接绕过；系统级勿扰需要你在系统设置里给 Chatz 放行。':
+      'Higher priority is more likely to cut through the system do-not-disturb mode (Android’s “priority only”). The in-app DND window is bypassed entirely; system-level DND needs you to allow Chatz in system settings.',
+    '汇总范围': 'What to include',
+    '只汇总未读（已读的不再推）': 'Unread only (skip already-read messages)',
+    '包含静音频道的消息': 'Include muted channels',
+    '排除我自己发的': 'Exclude messages I sent',
+    '最多列出': 'List at most',
+    '条（超出提示「还有 N 条」）': 'item(s) (extra ones are summarised as “N more”)',
+    '保存设置': 'Save settings',
+    '立即生成一份': 'Generate one now',
+    '「立即生成」用来看看效果，不受时间限制，也不占用当天那一份。':
+      '“Generate now” is for previewing: no time restriction, and it does not consume today’s scheduled digest.',
+    '已生成 {0} 条，去「每日摘要」频道看': 'Generated {0} item(s) — see the “Daily digest” channel',
+    '过去 24 小时没有可汇总的消息': 'Nothing to summarise in the last 24 hours',
+    '生成失败': 'Generation failed',
     // ---- 存储（磁盘配额）----
     '已用 <b>{0}</b> / 上限 <b>{1}</b>': 'Used <b>{0}</b> / limit <b>{1}</b>',
     ' · 共 {0} 个文件，其中缓存封面 {1} 个（{2}）': ' · {0} file(s) in total, {1} cached cover(s) ({2})',

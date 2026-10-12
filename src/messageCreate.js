@@ -434,7 +434,7 @@ function attachApp(ctx, app) {
   }
 }
 
-function createMessage({ appid, channel_id, message, title, priority, extras, tags, silent, userId, hops }) {
+function createMessage({ appid, channel_id, message, title, priority, extras, tags, silent, userId, hops, noAgg = false, skipRules = false }) {
   // 派生代次（路由环路闸门，见 routing.js 的 MAX_ROUTE_HOPS）。
   // 只有 `POST /hook/:token` 会从 X-Chatz-Hop 头里读出来传进来；
   // 用户手动发消息 / 第三方 webhook 首次进来都是 0。
@@ -563,7 +563,7 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
     }
   }
 
-  const routed = applyRoutes(ctx);
+  const routed = skipRules ? ctx : applyRoutes(ctx);
   if (routed === null) return { dropped: true };
   // 发送者快照写进 extras（在路由之后，且覆盖写入 —— 见 attachSender 的说明）
   attachSender(ctx, userId);
@@ -574,7 +574,11 @@ function createMessage({ appid, channel_id, message, title, priority, extras, ta
   const date = new Date(now).toISOString();
 
   // 尝试聚合
-  const aggTarget = findAggregateTarget(ctx.message.channel_id, ctx.message.appid, ctx.message.title);
+  // noAgg：每日摘要之类的「自产消息」不走折叠 —— 补发和定时触发可能落在同一个
+  // 5 分钟窗口里，折叠掉就意味着当天只剩一条摘要（甚至和昨天的续上）。
+  const aggTarget = noAgg
+    ? null
+    : findAggregateTarget(ctx.message.channel_id, ctx.message.appid, ctx.message.title);
   if (aggTarget) {
     let children = [];
     try { children = JSON.parse(aggTarget.agg_children || '[]'); } catch {}

@@ -25,6 +25,8 @@ const {
 } = require('./attachments');
 // 附件磁盘配额：超限自动回收（删孤儿 + 最旧的缓存封面）
 const { getQuotaBytes, enforceQuota, usage, formatBytes } = require('./attachmentQuota');
+// 每日摘要
+const { startDigestScheduler } = require('./digest');
 const { rateLimit } = require('./rateLimit');
 const { detectImageExt } = require('./sanitize');
 const audit = require('./audit');
@@ -963,6 +965,10 @@ server.listen(PORT, () => {
   audit.prune();
   const auditPruneTimer = setInterval(() => audit.prune(), 6 * 3600 * 1000);
   auditPruneTimer.unref();
+
+  // 每日摘要：每分钟扫一遍「已过设定时间且今天还没发过」的用户。
+  // 启动时立刻扫一次（补上停机期间错过的），见 digest.js 文件头的说明。
+  startDigestScheduler();
 
   // ============================================================
   // AUTH_TOKEN 提示

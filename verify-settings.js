@@ -69,11 +69,30 @@ eq(
   { theme: 'dark', bgDim: 35, accentFromBg: false, imageBottom: true }
 );
 
+console.log('— 7. digest：嵌套对象，按子键校验 —');
+eq('digest.enabled=true', normalizeSettings({ digest: { enabled: true } }), { digest: { enabled: true } });
+eq('digest.time=08:30', normalizeSettings({ digest: { time: '08:30' } }), { digest: { time: '08:30' } });
+// 8:00 这种「少个前导零」不收：正则要的是两位，改成宽松反而会把 8:0 / 8:00 都吞进来
+eq('digest.time=8:00 不收', normalizeSettings({ digest: { time: '8:00' } }), { digest: {} });
+eq('digest.time=25:99 不是真时间', normalizeSettings({ digest: { time: '25:99' } }), { digest: {} });
+eq('digest.priority=99 越界', normalizeSettings({ digest: { priority: 99 } }), { digest: {} });
+eq('digest.maxItems=0 越界', normalizeSettings({ digest: { maxItems: 0 } }), { digest: {} });
+eq(
+  'digest 只收白名单子键',
+  normalizeSettings({ digest: { enabled: false, time: '07:00', evil: 1 } }),
+  { digest: { enabled: false, time: '07:00' } }
+);
+eq('digest 传字符串（非对象）', normalizeSettings({ digest: 'x' }), {});
+eq('digest 传数组', normalizeSettings({ digest: [1, 2] }), {});
+
 console.log('— 6. 规格表本身的健全性 —');
-eq('登记的键齐全', Object.keys(SETTINGS_SPEC).sort(), ['accentFromBg', 'bgBlur', 'bgDim', 'imageBottom', 'lang', 'theme']);
-eq('每个 kind 都认识', Object.values(SETTINGS_SPEC).every(s => ['enum', 'int', 'bool'].includes(s.kind)), true);
+eq('登记的键齐全', Object.keys(SETTINGS_SPEC).sort(), ['accentFromBg', 'bgBlur', 'bgDim', 'digest', 'imageBottom', 'lang', 'theme']);
+eq('每个 kind 都认识', Object.values(SETTINGS_SPEC).every(s => ['enum', 'int', 'bool', 'object', 'time'].includes(s.kind)), true);
 eq('每个 int 都有上下界', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'int').every(s => Number.isInteger(s.min) && Number.isInteger(s.max)), true);
 eq('每个 enum 都有取值表', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'enum').every(s => Array.isArray(s.values) && s.values.length > 0), true);
+// object 必须有 keys 白名单，否则整份 JSON 都放行 —— 那 settings 又变成存储桶了
+eq('每个 object 都有子键白名单', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'object').every(s => s.keys && Object.keys(s.keys).length > 0), true);
+eq('object 的子键 kind 也都认识', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'object').every(s => Object.values(s.keys).every(k => ['enum', 'int', 'bool', 'object', 'time'].includes(k.kind))), true);
 
 console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILED') + '  pass=' + pass + ' fail=' + fail);
 process.exit(fail === 0 ? 0 : 1);
