@@ -387,7 +387,7 @@
           </span>
           <span class="settings-body">
             <span class="settings-name">每日摘要</span>
-            <span class="settings-desc">定时汇总未读消息，绕过勿扰</span>
+            <span class="settings-desc">定时汇总一天的消息，绕过勿扰</span>
           </span>
           <span class="settings-arrow">&#x203A;</span>
         </button>
@@ -525,15 +525,29 @@
         <h4 class="section-title">每日摘要</h4>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
           <input id="digestEnabled" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent);">
-          <span>每天给我发一份未读消息汇总</span>
+          <span>每天给我发一份消息汇总</span>
         </label>
         <p class="hint">开启后会建一个私有的「每日摘要」频道（只有你能看），摘要落在里面。关掉开关只是不再生成、也不显示入口，历史仍会保留。</p>
 
         <div class="digest-row">
           <label for="digestTime">发送时间</label>
           <input id="digestTime" type="time" value="08:00">
-          <span class="hint" style="margin:0;">按服务器时区</span>
+          <input id="digestTz" class="digest-tz" type="text" list="digestTzList" value="Asia/Shanghai"
+                 spellcheck="false" autocomplete="off" placeholder="Asia/Shanghai">
         </div>
+        <datalist id="digestTzList">
+          <option value="Asia/Shanghai">北京时间</option>
+          <option value="Asia/Hong_Kong">香港</option>
+          <option value="Asia/Taipei">台北</option>
+          <option value="Asia/Tokyo">东京</option>
+          <option value="Asia/Singapore">新加坡</option>
+          <option value="Europe/London">伦敦</option>
+          <option value="Europe/Berlin">柏林</option>
+          <option value="America/New_York">纽约</option>
+          <option value="America/Los_Angeles">洛杉矶</option>
+          <option value="UTC">UTC</option>
+        </datalist>
+        <p class="hint">默认<b>北京时间</b>（Asia/Shanghai），可以改成任何 IANA 时区名。填了一个不存在的时区，这一项会保存失败（其它项照常保存）。</p>
 
         <div class="digest-row">
           <label for="digestPriority">优先级</label>
@@ -543,9 +557,7 @@
         <p class="hint">优先级高更可能穿透系统勿扰（Android 的「仅优先级」模式）。App 内的勿扰定时段会被摘要直接绕过；系统级勿扰需要你在系统设置里给 Chatz 放行。</p>
 
         <h4 class="section-title">汇总范围</h4>
-        <label class="digest-check">
-          <input id="digestOnlyUnread" type="checkbox"><span>只汇总未读（已读的不再推）</span>
-        </label>
+        <p class="hint">汇总过去 24 小时里你订阅的所有频道的消息（已读的也算 —— 它是一份回看清单，不是「没看过的」清单）。</p>
         <label class="digest-check">
           <input id="digestIncludeMuted" type="checkbox"><span>包含静音频道的消息</span>
         </label>
@@ -555,7 +567,7 @@
         <div class="digest-row">
           <label for="digestMaxItems">最多列出</label>
           <input id="digestMaxItems" type="number" min="1" max="100" step="1" value="20">
-          <span class="hint" style="margin:0;">条（超出提示「还有 N 条」）</span>
+          <span class="digest-unit">条（超出提示「还有 N 条」）</span>
         </div>
 
         <button id="digestSaveBtn" class="btn-primary" style="width:100%;margin-top:8px;">保存设置</button>

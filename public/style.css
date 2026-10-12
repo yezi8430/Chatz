@@ -2185,17 +2185,38 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 /* ============================================================
    每日摘要
    ============================================================ */
+/* 一行「标签 + 控件 + 尾巴」。尾巴（数字 / 单位）给固定宽度并右对齐，
+   这样拖动滑块时数字不会左右跳；标签也定宽，各行控件起点才齐。 */
 .digest-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: var(--sp-2);
   font-size: 13px;
   color: var(--text);
 }
-.digest-row > label { min-width: 64px; color: var(--text-secondary); }
+.digest-row > label {
+  flex: 0 0 60px;
+  color: var(--text-secondary);
+}
+.digest-row .digest-unit,
+.digest-row .digest-num {
+  flex: 0 1 auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* 数字定宽 + 等宽数字：0~10 之间切换时整行不会抖动 */
+.digest-num {
+  flex: 0 0 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
 .digest-row input[type="time"],
 .digest-row input[type="number"] {
+  width: 110px;
   padding: 7px 10px;
   font-size: 13px;
   color: var(--text);
@@ -2205,13 +2226,82 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 }
 [data-theme="dark"] .digest-row input[type="time"],
 [data-theme="dark"] .digest-row input[type="number"] { background: rgba(255, 255, 255, 0.05); }
-.digest-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
-.digest-num {
-  min-width: 20px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
+
+/* 时区：可自由填写，宽度比时间宽一点（Asia/Shanghai 这种有 13 个字符） */
+.digest-tz {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
 }
+[data-theme="dark"] .digest-tz { background: rgba(255, 255, 255, 0.05); }
+
+/* 优先级滑块：自己画轨道，填充比例由 JS 写到 --digest-fill 上。
+   ⚠️ 为什么不用原生 accent-color：原生轨道在两端各留半个滑块的位置，
+   拖到最大值时右边永远剩一截空白，看起来像"还没拉满"。 */
+.digest-row input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.digest-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      to right,
+      var(--accent) 0,
+      var(--accent) var(--digest-fill, 80%),
+      var(--glass-border-soft) var(--digest-fill, 80%),
+      var(--glass-border-soft) 100%
+    );
+}
+.digest-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+[data-theme="dark"] .digest-row input[type="range"]::-webkit-slider-thumb { background: #2a2a32; }
+.digest-row input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--glass-border-soft);
+}
+.digest-row input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.digest-row input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: #fff;
+}
+.digest-row input[type="range"]:focus-visible { outline: none; }
+.digest-row input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
 .digest-check {
   display: flex;
   align-items: center;
@@ -2221,7 +2311,7 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   color: var(--text);
   cursor: pointer;
 }
-.digest-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.digest-check input { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent); }
 
 /* ============================================================
    路由规则

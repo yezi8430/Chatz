@@ -237,19 +237,22 @@
     '存储': 'Storage',
     '附件与缓存封面的磁盘配额': 'Disk quota for attachments and cached covers',
     '每日摘要': 'Daily digest',
-    '定时汇总未读消息，绕过勿扰': 'A timed summary of unread messages that cuts through do-not-disturb',
+    '定时汇总一天的消息，绕过勿扰': 'A timed summary of the day that cuts through do-not-disturb',
     '今日摘要': "Today's digest",
     // ---- 每日摘要 ----
-    '每天给我发一份未读消息汇总': 'Send me a summary of unread messages every day',
+    '每天给我发一份消息汇总': 'Send me a summary of the day every day',
     '开启后会建一个私有的「每日摘要」频道（只有你能看），摘要落在里面。关掉开关只是不再生成、也不显示入口，历史仍会保留。':
       'Turning this on creates a private “Daily digest” channel (only you can see it) where the digests land. Turning it off only stops generation and hides the entry — the history stays.',
     '发送时间': 'Send at',
-    '按服务器时区': 'server time zone',
+    '默认北京时间（Asia/Shanghai），可以改成任何 IANA 时区名。填了一个不存在的时区，这一项会保存失败（其它项照常保存）。':
+      'Defaults to Beijing time (Asia/Shanghai); set any IANA time zone name instead. A name that does not exist is rejected (the other fields still save).',
+    '时区无效，已回退为 {0}': 'Invalid time zone — fell back to {0}',
     '优先级': 'Priority',
     '优先级高更可能穿透系统勿扰（Android 的「仅优先级」模式）。App 内的勿扰定时段会被摘要直接绕过；系统级勿扰需要你在系统设置里给 Chatz 放行。':
       'Higher priority is more likely to cut through the system do-not-disturb mode (Android’s “priority only”). The in-app DND window is bypassed entirely; system-level DND needs you to allow Chatz in system settings.',
     '汇总范围': 'What to include',
-    '只汇总未读（已读的不再推）': 'Unread only (skip already-read messages)',
+    '汇总过去 24 小时里你订阅的所有频道的消息（已读的也算 —— 它是一份回看清单，不是「没看过的」清单）。':
+      'Everything from the last 24 hours in the channels you subscribe to — read messages included. This is a "what happened today" recap, not a "what you missed" list.',
     '包含静音频道的消息': 'Include muted channels',
     '排除我自己发的': 'Exclude messages I sent',
     '最多列出': 'List at most',

@@ -44,6 +44,39 @@ console.log('\n=== 2. dayKey 格式 ===');
 eq('补零', C.dayKey(new Date(2026, 0, 5, 8, 0)), '2026-01-05');
 eq('十二月', C.dayKey(new Date(2026, 11, 31, 23, 59)), '2026-12-31');
 
+console.log('\n=== 2b. 时区（每个用户自己选，默认北京时间）===');
+eq('默认时区是北京时间', C.DEFAULT_TZ, 'Asia/Shanghai');
+eq('空设置 → 默认时区', C.digestSettingsOf({}).tz, 'Asia/Shanghai');
+// 同一个时刻，不同时区必须给出不同的「几点」和不同的「今天」
+const instant = new Date('2026-10-13T00:30:00Z');   // UTC 的 00:30 = 北京 08:30 = 纽约(前一天) 20:30
+eq('北京：08:30', C.zoneNow('Asia/Shanghai', instant).hhmm, 830);
+eq('北京：10-13', C.zoneNow('Asia/Shanghai', instant).day, '2026-10-13');
+eq('UTC：00:30', C.zoneNow('UTC', instant).hhmm, 30);
+eq('UTC：还是 10-13', C.zoneNow('UTC', instant).day, '2026-10-13');
+eq('纽约：20:30', C.zoneNow('America/New_York', instant).hhmm, 2030);
+eq('纽约：还是 10-12（日期键必须跟着时区走，否则当天漏发）',
+  C.zoneNow('America/New_York', instant).day, '2026-10-12');
+// 午夜不能被渲染成 24 点（hour12:false 在部分 ICU 版本上的坑）
+eq('午夜是 0 点不是 24 点', C.zoneNow('Asia/Shanghai', new Date('2026-10-12T16:00:00Z')).hhmm, 0);
+eq('非法时区退回默认（宁可按北京时间发，也别永远不发）',
+  C.zoneNow('Not/AZone', instant).tz, 'Asia/Shanghai');
+eq('isValidTz: 正常', C.isValidTz('Asia/Shanghai'), true);
+eq('isValidTz: UTC', C.isValidTz('UTC'), true);
+eq('isValidTz: 空串', C.isValidTz(''), false);
+eq('isValidTz: 不存在', C.isValidTz('Mars/Olympus'), false);
+eq('isValidTz: 非字符串', C.isValidTz(123), false);
+eq('isValidTz: 超长', C.isValidTz('A'.repeat(200)), false);
+eq('normalizeTz: 非法 → 默认', C.normalizeTz('Mars/Olympus'), 'Asia/Shanghai');
+eq('normalizeTz: 带空格也能用', C.normalizeTz('  Asia/Shanghai  '), 'Asia/Shanghai');
+
+console.log('\n=== 2c. 不再有 onlyUnread（摘要汇总全部消息）===');
+eq('默认值里没有 onlyUnread', 'onlyUnread' in C.DEFAULT_DIGEST, false);
+eq('旧的 onlyUnread 设置被读进来也不影响渲染',
+  C.digestSettingsOf({ settings: JSON.stringify({ digest: { onlyUnread: true } }) }).onlyUnread, true);
+ok('汇总全部消息（正文里不再提「未读」）', !C.renderDigest(
+  [{ channelId: 10, name: 'J', items: [row(1)] }], 1, 20
+).text.includes('未读'));
+
 console.log('\n=== 3. 标题回退 ===');
 eq('有标题用标题', C.digestItemTitle(row(1, { title: 'A' })), 'A');
 eq('空标题 → 正文第一行', C.digestItemTitle(row(1, { title: '   ', message: '第一行\n第二行' })), '第一行');

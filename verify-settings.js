@@ -14,8 +14,16 @@ if (start < 0 || end < 0 || end < start) {
 }
 const snippet = src.slice(start, end);
 
-const factory = new Function(snippet + '\nreturn { SETTINGS_SPEC, coerceSetting, normalizeSettings };');
-const { SETTINGS_SPEC, coerceSetting, normalizeSettings } = factory();
+// ⚠️ coerceTz 用的是 digestCore 的 isValidTz（时区判定交给 Intl，不在 users.js 里
+//   另写一份），而这一段源码是**切出来单独 eval**的 —— 缺什么就得显式注入什么，
+//   否则 factory() 里会 ReferenceError，测试会以很迷惑的方式挂掉。
+const { isValidTz } = require('./src/digestCore');
+
+const factory = new Function(
+  'isValidTz',
+  snippet + '\nreturn { SETTINGS_SPEC, coerceSetting, normalizeSettings };'
+);
+const { SETTINGS_SPEC, coerceSetting, normalizeSettings } = factory(isValidTz);
 
 let pass = 0, fail = 0;
 function eq(name, got, want) {
@@ -75,11 +83,17 @@ eq('digest.time=08:30', normalizeSettings({ digest: { time: '08:30' } }), { dige
 // 8:00 这种「少个前导零」不收：正则要的是两位，改成宽松反而会把 8:0 / 8:00 都吞进来
 eq('digest.time=8:00 不收', normalizeSettings({ digest: { time: '8:00' } }), { digest: {} });
 eq('digest.time=25:99 不是真时间', normalizeSettings({ digest: { time: '25:99' } }), { digest: {} });
+eq('digest.tz=Asia/Shanghai', normalizeSettings({ digest: { tz: 'Asia/Shanghai' } }), { digest: { tz: 'Asia/Shanghai' } });
+eq('digest.tz=UTC', normalizeSettings({ digest: { tz: 'UTC' } }), { digest: { tz: 'UTC' } });
+// 不存在的时区必须是 undefined（丢弃）而不是退回默认 —— 让用户看到「没保存上」
+eq('digest.tz 不存在 → 丢弃', coerceSetting('digest', { tz: 'Mars/Olympus' }), {});
+eq('digest.tz 空串 → 丢弃', coerceSetting('digest', { tz: '' }), {});
+eq('digest.tz 非字符串 → 丢弃', coerceSetting('digest', { tz: 8 }), {});
 eq('digest.priority=99 越界', normalizeSettings({ digest: { priority: 99 } }), { digest: {} });
 eq('digest.maxItems=0 越界', normalizeSettings({ digest: { maxItems: 0 } }), { digest: {} });
 eq(
-  'digest 只收白名单子键',
-  normalizeSettings({ digest: { enabled: false, time: '07:00', evil: 1 } }),
+  'digest 只收白名单子键（onlyUnread 已下线，传了也不收）',
+  normalizeSettings({ digest: { enabled: false, time: '07:00', onlyUnread: true, evil: 1 } }),
   { digest: { enabled: false, time: '07:00' } }
 );
 eq('digest 传字符串（非对象）', normalizeSettings({ digest: 'x' }), {});
@@ -87,12 +101,17 @@ eq('digest 传数组', normalizeSettings({ digest: [1, 2] }), {});
 
 console.log('— 6. 规格表本身的健全性 —');
 eq('登记的键齐全', Object.keys(SETTINGS_SPEC).sort(), ['accentFromBg', 'bgBlur', 'bgDim', 'digest', 'imageBottom', 'lang', 'theme']);
-eq('每个 kind 都认识', Object.values(SETTINGS_SPEC).every(s => ['enum', 'int', 'bool', 'object', 'time'].includes(s.kind)), true);
+const KNOWN_KINDS = ['enum', 'int', 'bool', 'object', 'time', 'tz'];
+eq('每个 kind 都认识', Object.values(SETTINGS_SPEC).every(s => KNOWN_KINDS.includes(s.kind)), true);
 eq('每个 int 都有上下界', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'int').every(s => Number.isInteger(s.min) && Number.isInteger(s.max)), true);
 eq('每个 enum 都有取值表', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'enum').every(s => Array.isArray(s.values) && s.values.length > 0), true);
 // object 必须有 keys 白名单，否则整份 JSON 都放行 —— 那 settings 又变成存储桶了
 eq('每个 object 都有子键白名单', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'object').every(s => s.keys && Object.keys(s.keys).length > 0), true);
-eq('object 的子键 kind 也都认识', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'object').every(s => Object.values(s.keys).every(k => ['enum', 'int', 'bool', 'object', 'time'].includes(k.kind))), true);
+eq('object 的子键 kind 也都认识', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'object').every(s => Object.values(s.keys).every(k => KNOWN_KINDS.includes(k.kind))), true);
+eq('每个 int 子键都有上下界', Object.values(SETTINGS_SPEC).filter(s => s.kind === 'object').every(s => Object.values(s.keys).filter(k => k.kind === 'int').every(k => Number.isInteger(k.min) && Number.isInteger(k.max))), true);
+eq('digest 不再有 onlyUnread', 'onlyUnread' in SETTINGS_SPEC.digest.keys, false);
+eq('digest 有 tz', 'tz' in SETTINGS_SPEC.digest.keys, true);
+eq('digest 默认值里有 tz 且是北京时间', SETTINGS_SPEC.digest.def.tz, 'Asia/Shanghai');
 
 console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILED') + '  pass=' + pass + ' fail=' + fail);
 process.exit(fail === 0 ? 0 : 1);

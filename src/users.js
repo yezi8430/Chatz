@@ -9,7 +9,8 @@ const audit = require('./audit');
 const ws = require('./ws');
 const i18n = require('./serverI18n');
 // 每日摘要：设置默认值 + 立即运行接口都在这儿（设置项本身在 SETTINGS_SPEC）
-const { digestSettingsOf, sendDigest } = require('./digest');
+const { digestSettingsOf, sendDigest, zoneNow } = require('./digest');
+const { isValidTz, normalizeTz } = require('./digestCore');
 const router = express.Router();
 
 /**
@@ -987,16 +988,16 @@ const SETTINGS_SPEC = {
   // ⚠️ 容器频道 id **不在这里**（那是服务端自有数据，见 user_digest_channels 表），
   //    客户端写不进来，也就没法把摘要指到别人的私有频道去。
   //
-  // ⚠️ time 用**服务器时区**（容器 TZ）解释。没做时区选择器：
-  //    家庭 NAS 就一个时区，为了理论上的正确性加一层选择器不值得。
-  //    设置页会把「按服务器时区」明写出来，别让用户猜。
+  // ⚠️ tz 用**用户自己选的时区**（默认 Asia/Shanghai），**不是**容器 TZ：
+  //    家庭 NAS 的容器时区常常是 UTC，按它解释「08:00」会在半夜把人叫醒。
+  //    判定交给 Intl（isValidTz），不自己维护时区表。
   digest: {
     kind: 'object',
     def: {
       enabled: false,
       time: '08:00',
+      tz: 'Asia/Shanghai',
       priority: 8,
-      onlyUnread: true,
       includeMuted: true,
       excludeOwn: true,
       maxItems: 20,
@@ -1004,8 +1005,8 @@ const SETTINGS_SPEC = {
     keys: {
       enabled:      { kind: 'bool' },
       time:         { kind: 'time' },
+      tz:           { kind: 'tz' },
       priority:     { kind: 'int', min: 0, max: 10 },
-      onlyUnread:   { kind: 'bool' },
       includeMuted: { kind: 'bool' },
       excludeOwn:   { kind: 'bool' },
       maxItems:     { kind: 'int', min: 1, max: 100 },
@@ -1018,6 +1019,18 @@ function coerceTime(v) {
   if (typeof v !== 'string') return undefined;
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v.trim());
   return m ? `${m[1]}:${m[2]}` : undefined;
+}
+
+/**
+ * 时区名（IANA，如 Asia/Shanghai）
+ *
+ * 不合法就丢弃（undefined）而不是退回默认值 —— 让用户看到「保存失败」，
+ * 比写一个他没填过的时区进去强（写进去就变成"我明明没改这项"）。
+ */
+function coerceTz(v) {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return isValidTz(t) ? t : undefined;
 }
 
 /** 递归校验一个对象设置项：只收白名单内的子键，其余静默丢弃 */
@@ -1044,6 +1057,7 @@ function coerceSettingByKind(spec, v) {
 
   if (spec.kind === 'object') return coerceObjectSetting(spec, v);
   if (spec.kind === 'time') return coerceTime(v);
+  if (spec.kind === 'tz') return coerceTz(v);
 
   if (spec.kind === 'enum') {
     return spec.values.includes(v) ? v : undefined;
@@ -1147,11 +1161,18 @@ router.get('/user/digest', requireAuth, (req, res) => {
   const user = db.prepare('SELECT id, settings FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: '用户不存在' });
   const cfg = digestSettingsOf(user);
+  const zn = zoneNow(cfg.tz);
+  const hh = String(Math.floor(zn.hhmm / 100)).padStart(2, '0');
+  const mm = String(zn.hhmm % 100).padStart(2, '0');
   res.json({
     enabled: !!cfg.enabled,
     time: cfg.time,
+    tz: normalizeTz(cfg.tz),
     priority: cfg.priority,
     channelId: digestChannelId(req.user.id),
+    // 服务端按这个时区理解的「现在几点」，客户端/排障不用自己算一遍
+    now: `${hh}:${mm}`,
+    nowDay: zn.day,
   });
 });
 
@@ -1173,6 +1194,7 @@ router.post('/user/digest/run',
     const cfg = digestSettingsOf(user);
     const r = sendDigest(user, cfg, { force: true });
     res.json({
+      ok: true,
       sent: r.sent,
       reason: r.reason || null,
       messageId: r.messageId || null,

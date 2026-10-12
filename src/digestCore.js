@@ -6,16 +6,48 @@
 // 所以按 attachmentLimits.js 的老规矩：零依赖的纯逻辑挪出来，
 // digest.js 只留碰数据库的那部分。
 
+// ── 时区 ──
+// 每个用户自己选时区，默认北京时间。为什么不再按「服务器时区」：
+// 家庭 NAS 的容器 TZ 常常是 UTC，用户看到「08:00 发」结果凌晨就来了。
+// 默认给 Asia/Shanghai（绝大多数使用场景），想改就填别的 IANA 时区名。
+const DEFAULT_TZ = 'Asia/Shanghai';
+
 /** 服务端默认值（客户端有自己的默认值，两边保持一致即可） */
 const DEFAULT_DIGEST = {
   enabled: false,
   time: '08:00',
+  tz: DEFAULT_TZ,
   priority: 8,
-  onlyUnread: true,
   includeMuted: true,
   excludeOwn: true,
   maxItems: 20,
 };
+
+/**
+ * 是否是一个能用的时区名
+ *
+ * 判定交给 Intl：自己维护一张时区表既造不完也必然过时。
+ * 字符白名单只是挡掉乱七八糟的输入（Intl 对某些奇怪字符串也会接受）。
+ */
+function isValidTz(v) {
+  if (typeof v !== 'string') return false;
+  const t = v.trim();
+  if (!t || t.length > 64) return false;
+  if (!/^[A-Za-z0-9_+\-\/:]+$/.test(t)) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: t });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 归一化时区名（不合格就退回默认） */
+function normalizeTz(v) {
+  if (typeof v !== 'string') return DEFAULT_TZ;
+  const t = v.trim();
+  return isValidTz(t) ? t : DEFAULT_TZ;
+}
 
 /**
  * 取出某个用户的 digest 设置，缺项补默认值
@@ -31,10 +63,39 @@ function digestSettingsOf(user) {
   return { ...DEFAULT_DIGEST, ...stored };
 }
 
-/** 今天（服务器时区）的日期键，用于幂等 */
+/** 某个时区「现在」的分钟数与日期键 —— 摘要的定时与幂等都按它算 */
 function dayKey(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * 取某个时区「现在」的时刻与日期键
+ *
+ * 用 formatToParts 而不是拼字符串：不同 ICU 版本对 hour12:false 的处理不一致
+ * （有的把午夜渲染成 24），逐段取最稳。
+ *
+ * ⚠️ 时区不对就退回默认时区 —— 宁可按北京时间发，也不要因为一条脏设置永远不发。
+ */
+function zoneNow(tz, d = new Date()) {
+  const zone = normalizeTz(tz);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d);
+  const pick = (t) => {
+    const p = parts.find(x => x.type === t);
+    return p ? p.value : '';
+  };
+  const h = parseInt(pick('hour'), 10);
+  const m = parseInt(pick('minute'), 10);
+  return {
+    tz: zone,
+    hhmm: (Number.isNaN(h) ? 0 : h) * 100 + (Number.isNaN(m) ? 0 : m),
+    day: `${pick('year')}-${pick('month')}-${pick('day')}`,
+  };
 }
 
 /** 一条消息在摘要里显示的文字：标题优先，没有就取正文第一行 */
@@ -84,7 +145,9 @@ function renderDigest(groups, total, maxItems) {
     lines.push(`> 还有 ${hidden} 条未列入（上限 ${maxItems} 条），去对应频道看吧`);
     lines.push('');
   }
-  lines.push('_过去 24 小时的未读消息汇总。时间按服务器时区。_');
+  // 「未读」这个概念对摘要没意义：它本来就是一份「过去 24 小时都发生了什么」的回看清单，
+  // 已读的也算 —— 真按未读过滤，白天看过的消息晚上就找不到了。
+  lines.push(`_过去 24 小时的消息汇总，共 ${total} 条。_`);
 
   // 结构化列表（extras.items）：客户端现在还没用，先带上 ——
   // v2 做「点标题跳到原消息」时不用改消息格式。
@@ -102,9 +165,13 @@ function renderDigest(groups, total, maxItems) {
 }
 
 module.exports = {
+  DEFAULT_TZ,
   DEFAULT_DIGEST,
   digestSettingsOf,
+  isValidTz,
+  normalizeTz,
   dayKey,
+  zoneNow,
   digestItemTitle,
   renderDigest,
 };

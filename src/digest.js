@@ -1,6 +1,6 @@
 // 每日摘要（digest）
 //
-// 每个用户在设定时间收到一条「过去 24 小时未读消息汇总」，用来补看不想被实时
+// 每个用户在设定时间收到一条「过去 24 小时消息汇总」，用来补看不想被实时
 // 打扰、但又不想漏掉的消息。
 //
 // ── 为什么摘要消息要落在「每人一个私有频道」里 ──
@@ -17,8 +17,10 @@
 //   频道和历史都留着（重开就能回看）。
 //
 // ── 时间与补发 ──
-//   time 按**服务器时区**（容器 TZ）解释，没做时区选择器（家庭 NAS 一个时区，
-//   为了理论正确性加一层选择器不值得；设置页会明写「按服务器时区」）。
+//   time 按**用户自己选的时区**（digest.tz，默认 Asia/Shanghai）解释。
+//   时刻和「今天」都按那个时区算：服务器跑在 UTC 上，用户设 08:00 就是他
+//   手表上的 08:00；日期键也必须跟着走，否则「他那边已过 8 点、服务器这边
+//   还是前一天」会导致当天漏发。
 //   每分钟扫一遍，规则只有一条：**已过今天的设定时间且今天还没发过 → 发**。
 //   这样「定时器错过那一分钟」「服务端重启」「宕机一整天」全都自动补上，
 //   不需要单独的补发逻辑。代价是重启后已过时间点会立刻补一份 —— 这是有意的
@@ -34,10 +36,10 @@ const { refreshUserChannels } = require('./ws');
 const i18n = require('./serverI18n');
 // 纯逻辑（默认值 / 设置合并 / 渲染）在零依赖的 digestCore.js 里，
 // 离线 verify 脚本要能 require 它，见那个文件的说明。
-const { DEFAULT_DIGEST, digestSettingsOf, dayKey, renderDigest } = require('./digestCore');
+const { DEFAULT_DIGEST, digestSettingsOf, zoneNow } = require('./digestCore');
 
 const CHANNEL_NAME = '每日摘要';
-const CHANNEL_DESC = '每天的未读消息汇总，由系统自动生成（关闭摘要后这里的历史仍会保留）';
+const CHANNEL_DESC = '每天的消息汇总，由系统自动生成（关闭摘要后这里的历史仍会保留）';
 const APP_NAME = '每日摘要';
 const APP_DESC = '每日摘要的署名应用，由系统自动创建';
 
@@ -125,7 +127,8 @@ function buildDigest(userId, cfg) {
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
 
   // 候选集：这个人订阅的频道、未删除未归档、过去 24 小时。
-  //   · onlyUnread=false 时把已读的也算进来
+  //   · 已读的**也算** —— 摘要是「过去一天都发生了什么」的回看清单，
+  //     按未读过滤的话白天看过的消息晚上就找不到了（以前有个 onlyUnread 开关，已去掉）
   //   · includeMuted=false 时排除静音的频道
   //   · 所有「摘要容器频道」一律排除 —— 否则昨天的摘要会进今天的摘要，
   //     子子孙孙无穷匮也（用 NOT IN 而不是 != 自己的 id：万一以后换容器）
@@ -135,18 +138,15 @@ function buildDigest(userId, cfg) {
     FROM messages m
     JOIN subscriptions s ON s.channel_id = m.channel_id AND s.user_id = @userId
     JOIN channels c ON c.id = m.channel_id
-    LEFT JOIN message_reads r ON r.message_id = m.id AND r.user_id = @userId
     WHERE m.deleted_at IS NULL
       AND m.archived_at IS NULL
       AND m.date >= @since
       AND m.channel_id NOT IN (SELECT channel_id FROM user_digest_channels)
-      AND (@onlyUnread = 0 OR r.read_at IS NULL)
       AND (@includeMuted = 1 OR s.muted = 0)
     ORDER BY m.date DESC
   `).all({
     userId,
     since,
-    onlyUnread: cfg.onlyUnread ? 1 : 0,
     includeMuted: cfg.includeMuted ? 1 : 0,
   });
 
@@ -196,11 +196,12 @@ function markSent(userId, day) {
  * 给一个用户发一份摘要
  *
  * @param force 跳过「今天发过」的幂等检查（POST /user/digest/run 手动触发用）
+ * @param day   日期键，由 tick 按用户时区算好传进来（不传就自己算一次）
  * @returns {{ sent: boolean, reason?: string, messageId?: number, total?: number }}
  */
-function sendDigest(user, cfg, { force = false } = {}) {
-  const day = dayKey();
-  if (!force && wasSent(user.id, day)) return { sent: false, reason: 'already-sent' };
+function sendDigest(user, cfg, { force = false, day = null } = {}) {
+  const d = day || zoneNow(cfg.tz).day;
+  if (!force && wasSent(user.id, d)) return { sent: false, reason: 'already-sent' };
 
   const channelId = ensureDigestChannel(user.id);
   const built = buildDigest(user.id, cfg);
@@ -226,7 +227,7 @@ function sendDigest(user, cfg, { force = false } = {}) {
   }
 
   // createMessage 返回的是 { message: 行对象, silent, aggregated }，id 在 message 里
-  markSent(user.id, day);
+  markSent(user.id, d);
   i18n.log('digest.sent', { userId: user.id, total: built.total, priority: cfg.priority });
   return { sent: true, messageId: r && r.message && r.message.id, total: built.total };
 }
@@ -242,9 +243,6 @@ function sendDigest(user, cfg, { force = false } = {}) {
  *  missed minute / 服务端重启 / 宕机一整天，全都由这一条兜住（见文件头）。
  */
 function tick() {
-  const now = new Date();
-  const hhmm = now.getHours() * 100 + now.getMinutes();
-
   // 家庭 NAS 用户量级是个位到几十，全表拉一遍在 JS 里过滤完全够；
   // 真到了要索引那天，再把 time 拆成列建索引不迟。
   const users = db.prepare('SELECT id, username, settings FROM users').all();
@@ -255,10 +253,15 @@ function tick() {
     const m = /^(\d{2}):(\d{2})$/.exec(String(cfg.time));
     if (!m) continue;
     const target = parseInt(m[1], 10) * 100 + parseInt(m[2], 10);
-    if (hhmm < target) continue;                 // 还没到今天的点
+
+    // ⚠️ 时刻和「今天」都按**这个人自己的时区**算：服务器跑在 UTC 上，
+    //    用户设的 08:00 就是他手表上的 08:00；日期键也跟着它走，
+    //    否则「他那边已经过 8 点、服务器这边还是前一天」会当天漏发。
+    const now = zoneNow(cfg.tz);
+    if (now.hhmm < target) continue;                 // 还没到今天的点
 
     try {
-      sendDigest(u, cfg);
+      sendDigest(u, cfg, { day: now.day });
     } catch (e) {
       // 一个用户挂了不能把整轮扫下去，更不能让定时器自己死掉
       i18n.warn('digest.tickFailed', { userId: u.id, msg: e.message });

@@ -709,12 +709,16 @@ omitted keys keep their current value). Returns the full merged settings.
 | Sub-key | Type | Values | Meaning |
 |---|---|---|---|
 | `enabled` | boolean | | on / off |
-| `time` | string | `HH:mm` | time of day, **in the server's timezone** |
+| `time` | string | `HH:mm` | time of day |
+| `tz` | string | IANA zone name | time zone, **defaults to `Asia/Shanghai`**; an unknown zone is dropped |
 | `priority` | integer | 0 – 10 | priority of the digest message (default `8`, used to get past DND / mute) |
-| `onlyUnread` | boolean | | only unread messages (default `true`) |
 | `includeMuted` | boolean | | include muted channels (default `true`) |
 | `excludeOwn` | boolean | | exclude your own messages (default `true`) |
 | `maxItems` | integer | 1 – 100 | how many items to list (default `20`, overflow becomes "N more") |
+
+> ⚠️ The digest summarises **every message from the last 24 hours** (read ones included) —
+> it is a "what happened today" recap, not a "what you missed" list. An earlier version had an
+> `onlyUnread` switch; it is gone now. Sending it is silently ignored (no error, no effect).
 
 - Only the keys listed above are accepted; an unknown key → `400 未知的设置项：xxx`
 - Wrong type or out of range (e.g. `bgBlur: 999`, `theme: "blue"`) → `400 设置项取值不合法：xxx`
@@ -756,15 +760,20 @@ The **daily digest** state of the current account. Clients use it to decide whet
 to show a "today's digest" entry.
 
 ```json
-{ "enabled": true, "time": "08:00", "priority": 8, "channelId": 12 }
+{ "enabled": true, "time": "08:00", "tz": "Asia/Shanghai", "priority": 8, "channelId": 12,
+  "now": "07:04", "nowDay": "2026-10-13" }
 ```
 
 - `enabled` — the switch. When off, clients hide the entry (digests already sent stay
   in the container channel and are visible again after re-enabling)
-- `time` — `HH:mm`, interpreted in the **server's timezone** (container `TZ`);
-  there is no timezone picker
+- `time` + `tz` — the time of day and the **time zone**. The zone defaults to
+  `Asia/Shanghai` and accepts any IANA zone name (`Asia/Tokyo`, `Europe/London`, `UTC`, …).
+  ⚠️ Both the hour and "today" are computed in that zone, **not** in the container's `TZ` —
+  with the server running on UTC, a user's 08:00 is 08:00 on their own watch
 - `priority` — priority of the digest message, used to get past DND / mute
 - `channelId` — the lazily created container channel id; `null` if it was never created
+- `now` / `nowDay` — what the server thinks "now" and "today" are in that zone; handy when
+  debugging
 
 ### `POST /user/digest/run` logged in (limited to 5 / minute)
 
@@ -791,8 +800,9 @@ Build one digest right now — "I want to see what it looks like".
 | Container channel | **one private channel per user**, subscribed by that user only. Message visibility is per channel subscription, so posting a digest into a shared channel would expose your unread list to everyone |
 | Lazy creation | The channel and its signing app are created the first time a digest is sent; turning the switch off only stops generating new ones — the channel and its history stay |
 | Scheduling | A once-a-minute sweep with a single rule: **today's set time has passed and today's digest has not been sent → send**. A missed minute, a restart, or a full day of downtime is all covered automatically |
-| Idempotency | Recorded in `user_digest_sent` per day; a restart never re-sends the same day |
-| Contents | The last 24 h of messages from **subscribed channels**, not deleted and not archived, grouped by channel; all digest container channels are excluded (otherwise yesterday's digest lands inside today's) |
+| Idempotency | Recorded in `user_digest_sent` per day (that day being in the user's own time zone); a restart never re-sends the same day |
+| Time zone | Both the hour and "today" use the **user's own zone** (`digest.tz`, Beijing time by default), never the container `TZ` |
+| Contents | The last 24 h of messages from **subscribed channels**, not deleted and not archived, **all of them** (read ones included), grouped by channel; all digest container channels are excluded (otherwise yesterday's digest lands inside today's) |
 | Priority | Uses `digest.priority` (default `8`) with `noAgg` + `skipRules`: a catch-up run and the scheduled run may fall in the same aggregation window, and the user's own routing rules (e.g. "silent below priority 8") would swallow the digest |
 | Payload | `extras.digest = true` plus a structured `extras.items`. Clients use it to **bypass local mute** — a digest exists to be read later, so muting it defeats the purpose |
 
