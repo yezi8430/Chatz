@@ -805,6 +805,7 @@ Build one digest right now — "I want to see what it looks like".
 | Contents | The last 24 h of messages from **subscribed channels**, not deleted and not archived, **all of them** (read ones included), grouped by channel; all digest container channels are excluded (otherwise yesterday's digest lands inside today's) |
 | Priority | Uses `digest.priority` (default `8`) with `noAgg` + `skipRules`: a catch-up run and the scheduled run may fall in the same aggregation window, and the user's own routing rules (e.g. "silent below priority 8") would swallow the digest |
 | Payload | `extras.digest = true` plus a structured `extras.items`. Clients use it to **bypass local mute** — a digest exists to be read later, so muting it defeats the purpose |
+| Outside "all channels" | `GET /message` **without `channel`** (the "all channels" view) excludes your own digest container channel — its messages are copies of messages elsewhere, so leaving them in shows everything twice. An explicit `?channel=<digest channel>` still returns them |
 
 > ⚠️ The digest only bypasses the **in-app** mute, not the OS-level Do Not Disturb:
 > a normal app cannot break through system DND. It relies on a high-importance

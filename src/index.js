@@ -651,7 +651,19 @@ app.get('/message', (req, res) => {
     }
     channelIds = [channelFilter];
   } else {
-    channelIds = allowedChannels;
+    // 「所有频道」里不带每日摘要：
+    //   摘要容器频道里的每条消息都是别处消息的**副本** —— 混进「所有频道」
+    //   每条都会出现两遍（原频道一遍、摘要里一遍），看着像消息重复了。
+    //   摘要有自己的入口，点进去照样看得到。
+    //
+    // ⚠️ 只在**不指定频道**时排除：显式 `?channel=<摘要频道>` 是用户主动点进去的，
+    //    那种情况必须照常返回，否则「今日摘要」频道会永远是空的。
+    const dRow = db.prepare(
+      'SELECT channel_id FROM user_digest_channels WHERE user_id = ?'
+    ).get(userId);
+    channelIds = dRow
+      ? allowedChannels.filter(id => id !== dRow.channel_id)
+      : allowedChannels;
   }
 
   let sql = `

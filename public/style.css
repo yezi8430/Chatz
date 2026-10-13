@@ -2206,9 +2206,9 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   color: var(--text-secondary);
   white-space: nowrap;
 }
-/* 时间行：时间和时区各自一行，输入框定宽，两行控件起点对齐 */
-.digest-row input[type="time"] { flex: 0 0 110px; }
-/* 数字定宽 + 等宽数字：0~10 之间切换时整行不会抖动 */
+/* 时间 / 时区两行：都换成了自画面板（.time-picker），
+   这里只还剩「最多列出」那个数字框 —— 定宽 + 等宽数字，切换时不抖。 */
+/* 优先级数字定宽 + 等宽数字：0~10 之间切换时整行不会抖动 */
 .digest-num {
   flex: 0 0 22px;
   text-align: right;
@@ -2216,17 +2216,16 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   font-weight: 600;
   color: var(--text);
 }
-.digest-row input[type="time"],
 .digest-row input[type="number"] {
+  flex: 0 0 90px;
   padding: 7px 10px;
   font-size: 13px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid var(--glass-border-soft);
   border-radius: var(--r-md);
+  font-variant-numeric: tabular-nums;
 }
-.digest-row input[type="number"] { flex: 0 0 90px; }
-[data-theme="dark"] .digest-row input[type="time"],
 [data-theme="dark"] .digest-row input[type="number"] { background: rgba(255, 255, 255, 0.05); }
 
 /* 时区面板：单列、可滚动，宽度给足（「北京时间（Asia/Shanghai）」不短） */

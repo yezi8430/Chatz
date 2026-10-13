@@ -921,7 +921,12 @@ function renderChannels() {
   const list = $('#channelList');
   list.innerHTML = '';
 
-  const totalUnread = Object.values(state.unreadByChannel).reduce((a, b) => a + b, 0);
+  // 「所有频道」的未读徽标要**扣掉每日摘要**：
+  //   摘要频道不在「所有频道」里（服务端 GET /message 不带 channel 时已排除），
+  //   算进去就成了「有红点，点进去什么都没有」。摘要自己的入口在下一行，单独计。
+  const dcId = state.digestChannel ? state.digestChannel.id : null;
+  const totalUnread = Object.keys(state.unreadByChannel)
+    .reduce((a, k) => a + (Number(k) === dcId ? 0 : state.unreadByChannel[k]), 0);
   const allItem = document.createElement('div');
   allItem.className = 'ch-item' + (state.currentChannelId === -1 ? ' active' : '');
   allItem.innerHTML = `

@@ -340,8 +340,6 @@
     //    差一个空格就查不到，别顺手 trim。
     ' <span class="tag-current">主密钥</span>': ' <span class="tag-current">Master key</span>',
     '主密钥，无法删除（要更换请换掉 AUTH_TOKEN 本身）': 'Master key, cannot be deleted (rotate AUTH_TOKEN itself to replace it)',
-    // 旧文案（已改）：'主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）'
-    '主密钥，无法删除（要换请在 .env 里改 AUTH_TOKEN）': 'Master key, cannot be deleted (change AUTH_TOKEN in .env instead)',
     '当前': 'Current',
     '<span class="tag-current">当前</span>': '<span class="tag-current">Current</span>',
     ' <span class="tag-current">当前</span>': ' <span class="tag-current">Current</span>',
@@ -363,7 +361,6 @@
     '验证失败': 'Verification failed',
     'Token 是长期凭据，复制后请妥善保管。请输入当前登录账号的密码以继续。':
       'A token is a long-lived credential \u2014 store it safely once copied. Enter the password of the account you are signed in with to continue.',
-    '后台图、主题色、图片位置': 'Background image, accent color, image position',
     '背景图、主题色、图片位置': 'Background image, accent color, image position',
     '界面背景': 'Interface background',
     '上传背景图（png / jpg / webp，最大 8MB）': 'Upload a background image (png / jpg / webp, max 8MB)',
