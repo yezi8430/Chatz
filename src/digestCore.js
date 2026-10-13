@@ -98,6 +98,25 @@ function zoneNow(tz, d = new Date()) {
   };
 }
 
+/**
+ * 日期键 → 人看的日期：`2026-10-13` → `10月13日`
+ *
+ * ⚠️ 年份只在**不是今年**时才带上：摘要是回看清单，翻上个月的大多是同年，
+ *    天天顶着「2026年」很吵；跨了年才需要区分（否则「1月2日」不知道哪年的）。
+ *
+ * @param day      日期键 `YYYY-MM-DD`
+ * @param nowYear  「今年」是哪年（按同一时区算的），null 就一律不显示年份
+ */
+function dayLabel(day, nowYear = null) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
+  if (!m) return '';
+  const yy = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10);
+  const dd = parseInt(m[3], 10);
+  const showYear = nowYear != null && yy !== nowYear;
+  return `${showYear ? yy + '年' : ''}${mo}月${dd}日`;
+}
+
 /** 一条消息在摘要里显示的文字：标题优先，没有就取正文第一行 */
 function digestItemTitle(row) {
   const t = row.title && String(row.title).trim();
@@ -112,9 +131,10 @@ function digestItemTitle(row) {
  * @param groups  分组结果：[{ channelId, name, items:[row...] }]，items 按时间倒序
  * @param total   过滤后的总条数（可能大于 maxItems）
  * @param maxItems 最多列出多少条
+ * @param dayPart 日期片段（`10月13日`），没有日期就留空 —— 标题和正文首行都用它
  * @returns {{ text, items, hidden }}
  */
-function renderDigest(groups, total, maxItems) {
+function renderDigest(groups, total, maxItems, dayPart = '') {
   // 展平保序（groups 已按时间倒序排好），取前 maxItems 条
   const flat = [];
   for (const g of groups) for (const it of g.items) flat.push(it);
@@ -130,8 +150,11 @@ function renderDigest(groups, total, maxItems) {
     outGroups.push({ channelId: g.channelId, name: g.name, count: items.length, items });
   }
 
+  // 标题带日期：同一天的两份摘要（手动生成 + 定时）一眼能分清，
+  // 翻历史也知道这份是哪天的 —— 日期按用户自己选的时区算，不是服务器时区。
+  const head = dayPart ? `今日摘要（${dayPart}）` : '今日摘要';
   const lines = [];
-  lines.push(`## 今日摘要 · ${total} 条 / ${outGroups.length} 个频道`);
+  lines.push(`## ${head} · ${total} 条 / ${outGroups.length} 个频道`);
   lines.push('');
   for (const g of outGroups) {
     lines.push(`**${g.name}**（${g.count}）`);
@@ -172,6 +195,7 @@ module.exports = {
   normalizeTz,
   dayKey,
   zoneNow,
+  dayLabel,
   digestItemTitle,
   renderDigest,
 };

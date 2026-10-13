@@ -69,6 +69,29 @@ eq('isValidTz: 超长', C.isValidTz('A'.repeat(200)), false);
 eq('normalizeTz: 非法 → 默认', C.normalizeTz('Mars/Olympus'), 'Asia/Shanghai');
 eq('normalizeTz: 带空格也能用', C.normalizeTz('  Asia/Shanghai  '), 'Asia/Shanghai');
 
+// ── 2d. 日期显示（标题 / 正文首行都要带，按用户时区算） ──
+console.log('\n=== 2d. 日期标题（今日摘要（10月13日））===');
+eq('同年月：不带年份', C.dayLabel('2026-10-13', 2026), '10月13日');
+eq('跨年：带上年份', C.dayLabel('2026-01-02', 2027), '2026年1月2日');
+eq('nowYear 为 null：一律不带年份', C.dayLabel('2026-10-13', null), '10月13日');
+eq('月份不补零', C.dayLabel('2026-03-05', 2026), '3月5日');
+eq('格式不对 → 空串（宁可不显示，也别显示个 undefined）', C.dayLabel('', 2026), '');
+eq('格式不对2', C.dayLabel('2026/10/13', 2026), '');
+eq('null 也不炸', C.dayLabel(null, 2026), '');
+// 标题里的日期必须是**用户时区**的那一天：UTC 00:30 在北京已经是 10-13
+eq('北京时区 → 10月13日',
+  C.dayLabel(C.zoneNow('Asia/Shanghai', instant).day,
+    parseInt(C.zoneNow('Asia/Shanghai', instant).day.slice(0, 4), 10)), '10月13日');
+eq('纽约时区 → 10月12日（差一天，必须跟着时区）',
+  C.dayLabel(C.zoneNow('America/New_York', instant).day,
+    parseInt(C.zoneNow('America/New_York', instant).day.slice(0, 4), 10)), '10月12日');
+
+const dtxt = C.renderDigest([{ channelId: 10, name: 'A', items: [row(1)] }], 1, 20, '10月13日').text;
+ok('正文首行带日期（与消息标题同一格式：`今日摘要（10月13日） · N 条`）',
+  dtxt.includes('## 今日摘要（10月13日） · 1 条'));
+ok('不传日期时首行不出现空括号',
+  !C.renderDigest([{ channelId: 10, name: 'A', items: [row(1)] }], 1, 20).text.includes('（）'));
+
 console.log('\n=== 2c. 不再有 onlyUnread（摘要汇总全部消息）===');
 eq('默认值里没有 onlyUnread', 'onlyUnread' in C.DEFAULT_DIGEST, false);
 eq('旧的 onlyUnread 设置被读进来也不影响渲染',

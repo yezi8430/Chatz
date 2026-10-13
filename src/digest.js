@@ -36,7 +36,7 @@ const { refreshUserChannels } = require('./ws');
 const i18n = require('./serverI18n');
 // 纯逻辑（默认值 / 设置合并 / 渲染）在零依赖的 digestCore.js 里，
 // 离线 verify 脚本要能 require 它，见那个文件的说明。
-const { DEFAULT_DIGEST, digestSettingsOf, renderDigest, zoneNow, dayKey } = require('./digestCore');
+const { DEFAULT_DIGEST, digestSettingsOf, renderDigest, zoneNow, dayKey, dayLabel } = require('./digestCore');
 
 const CHANNEL_NAME = '每日摘要';
 const CHANNEL_DESC = '每天的消息汇总，由系统自动生成（关闭摘要后这里的历史仍会保留）';
@@ -53,8 +53,22 @@ const TICK_MS = 60 * 1000;
 // 懒创建：容器频道 + 署名应用
 // ============================================================
 
+/**
+ * 这个人的摘要容器频道 id（没有就 null）
+ *
+ * ⚠️ 必须 JOIN channels 确认频道**还在**：容器频道是用户自己的（creator_id = 他），
+ *    所以他在频道管理里能删掉它。光看映射表的话，删完之后这里仍返回旧 id，
+ *    createMessage 会往一个不存在的频道里写 —— 摘要从此永远发不出来，
+ *    而且没有任何报错（日志里只有一句 warn，用户看的是「今天没收到」）。
+ *    JOIN 之后返回 null，下次发摘要就会重建一个。
+ */
 function digestChannelId(userId) {
-  const row = db.prepare('SELECT channel_id FROM user_digest_channels WHERE user_id = ?').get(userId);
+  const row = db.prepare(`
+    SELECT d.channel_id
+    FROM user_digest_channels d
+    JOIN channels c ON c.id = d.channel_id
+    WHERE d.user_id = ? AND c.deleted_at IS NULL
+  `).get(userId);
   return row ? row.channel_id : null;
 }
 
@@ -123,7 +137,7 @@ function ensureDigestApp(userId, channelId) {
  *
  * @returns {{ total, items, text } | null}  一条可摘要的都没有时返回 null
  */
-function buildDigest(userId, cfg) {
+function buildDigest(userId, cfg, dayPart = '') {
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
 
   // 候选集：这个人订阅的频道、未删除未归档、过去 24 小时。
@@ -174,7 +188,7 @@ function buildDigest(userId, cfg) {
   const groups = [...byChannel.values()];
 
   // 渲染（分组计数、截断、「还有 N 条」）在 digestCore.renderDigest 里，纯函数
-  const rendered = renderDigest(groups, filtered.length, cfg.maxItems);
+  const rendered = renderDigest(groups, filtered.length, cfg.maxItems, dayPart);
   return { total: filtered.length, items: rendered.items, text: rendered.text };
 }
 
@@ -200,21 +214,26 @@ function markSent(userId, day) {
  * @returns {{ sent: boolean, reason?: string, messageId?: number, total?: number }}
  */
 function sendDigest(user, cfg, { force = false, day = null } = {}) {
-  const d = day || zoneNow(cfg.tz).day;
+  // 日期一律按**用户自己选的时区**算：他选了东京，那这份摘要就是东京的那一天，
+  // 不能拿服务器时区（容器里常常是 UTC）去套 —— 半夜发出来日期会差一天。
+  const now = zoneNow(cfg.tz);
+  const d = day || now.day;
   if (!force && wasSent(user.id, d)) return { sent: false, reason: 'already-sent' };
 
+  const when = dayLabel(d, parseInt(String(now.day).slice(0, 4), 10));
+
   const channelId = ensureDigestChannel(user.id);
-  const built = buildDigest(user.id, cfg);
+  const built = buildDigest(user.id, cfg, when);
   if (!built) return { sent: false, reason: 'empty' };
 
   const appId = ensureDigestApp(user.id, channelId);
   const r = createMessage({
     appid: appId,
     channel_id: channelId,
-    title: `今日摘要 · ${built.total} 条`,
+    title: when ? `今日摘要（${when}） · ${built.total} 条` : `今日摘要 · ${built.total} 条`,
     message: built.text,
     priority: cfg.priority,
-    extras: { digest: true, items: built.items, total: built.total },
+    extras: { digest: true, day: d, items: built.items, total: built.total },
     tags: ['digest'],
     userId: user.id,
     noAgg: true,      // 补发和定时可能落在同一个 5 分钟窗口，折叠掉就只剩一条

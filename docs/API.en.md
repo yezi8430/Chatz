@@ -798,7 +798,7 @@ Build one digest right now — "I want to see what it looks like".
 | Piece | Notes |
 |---|---|
 | Container channel | **one private channel per user**, subscribed by that user only. Message visibility is per channel subscription, so posting a digest into a shared channel would expose your unread list to everyone |
-| Lazy creation | The channel and its signing app are created the first time a digest is sent; turning the switch off only stops generating new ones — the channel and its history stay |
+| Lazy creation | The channel and its signing app are created the first time a digest is sent; turning the switch off only stops generating new ones — the channel and its history stay. **Deleting the channel is safe**: the next digest recreates it (the mapping checks the channel still exists, so it never writes into a deleted one) |
 | Scheduling | A once-a-minute sweep with a single rule: **today's set time has passed and today's digest has not been sent → send**. A missed minute, a restart, or a full day of downtime is all covered automatically |
 | Idempotency | Recorded in `user_digest_sent` per day (that day being in the user's own time zone); a restart never re-sends the same day |
 | Time zone | Both the hour and "today" use the **user's own zone** (`digest.tz`, Beijing time by default), never the container `TZ` |
@@ -806,6 +806,7 @@ Build one digest right now — "I want to see what it looks like".
 | Priority | Uses `digest.priority` (default `8`) with `noAgg` + `skipRules`: a catch-up run and the scheduled run may fall in the same aggregation window, and the user's own routing rules (e.g. "silent below priority 8") would swallow the digest |
 | Payload | `extras.digest = true` plus a structured `extras.items`. Clients use it to **bypass local mute** — a digest exists to be read later, so muting it defeats the purpose |
 | Outside "all channels" | `GET /message` **without `channel`** (the "all channels" view) excludes your own digest container channel — its messages are copies of messages elsewhere, so leaving them in shows everything twice. An explicit `?channel=<digest channel>` still returns them |
+| Title | `Today's digest (13 Oct) · 12 items` — the date uses **`digest.tz`** (your own zone), never the server's. The year is only added when it differs from the current one. `extras.day` carries the same date as `YYYY-MM-DD` |
 
 > ⚠️ The digest only bypasses the **in-app** mute, not the OS-level Do Not Disturb:
 > a normal app cannot break through system DND. It relies on a high-importance
