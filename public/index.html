@@ -543,22 +543,19 @@
           <span class="digest-unit">每天这个时刻发一份</span>
         </div>
         <div class="digest-row">
-          <label for="digestTz">时区</label>
-          <select id="digestTz" class="digest-tz-select">
-            <option value="Asia/Shanghai">北京时间（Asia/Shanghai）</option>
-            <option value="Asia/Hong_Kong">香港（Asia/Hong_Kong）</option>
-            <option value="Asia/Taipei">台北（Asia/Taipei）</option>
-            <option value="Asia/Tokyo">东京（Asia/Tokyo）</option>
-            <option value="Asia/Singapore">新加坡（Asia/Singapore）</option>
-            <option value="Europe/London">伦敦（Europe/London）</option>
-            <option value="Europe/Berlin">柏林（Europe/Berlin）</option>
-            <option value="America/New_York">纽约（America/New_York）</option>
-            <option value="America/Los_Angeles">洛杉矶（America/Los_Angeles）</option>
-            <option value="UTC">UTC</option>
-          </select>
+          <label>时区</label>
+          <div class="time-picker" id="digestTzWrap">
+            <button type="button" id="digestTzBtn" class="time-picker-btn digest-tz-btn" aria-haspopup="listbox">
+              <span id="digestTzText">北京时间（Asia/Shanghai）</span>
+              <span class="time-picker-caret" aria-hidden="true"></span>
+            </button>
+            <div id="digestTzPanel" class="time-picker-panel tz-panel hidden"></div>
+            <!-- 真值存这里：保存/加载的代码不用改（仍然读写 #digestTz.value） -->
+            <input id="digestTz" type="hidden" value="Asia/Shanghai">
+          </div>
           <span id="digestTzHint" class="digest-unit"></span>
         </div>
-        <p class="hint">默认<b>北京时间</b>。想用别的时区就点时区框右边的小三角选一个；你所在时区当前的几点会实时显示在旁边。</p>
+        <p class="hint">默认北京时间；你选的时区当前的几点会实时显示在旁边。</p>
 
         <div class="digest-row">
           <label for="digestPriority">优先级</label>

@@ -2577,14 +2577,13 @@ async function loadDigestSettings() {
 /**
  * 时区下拉旁边的实时提示：那边现在几点
  *
- * 用浏览器自己的 Intl 现算，不发请求。时区改成了下拉（可选项都是合法的），
- * 所以这里不再有「无效」分支 —— 服务端保存时仍会再拦一次，双保险留着。
+ * 用浏览器自己的 Intl 现算，不发请求。时区是自画面板（可选项都是合法的），
+ * 所以这里没有「无效」分支 —— 服务端保存时仍会再拦一次，双保险留着。
  */
 function refreshTzHint() {
-  const sel = $('#digestTz');
   const hint = $('#digestTzHint');
-  if (!sel || !hint) return;
-  const tz = sel.value;
+  if (!hint) return;
+  const tz = $('#digestTz').value;
   if (!tz) { hint.textContent = ''; return; }
   try {
     const t = new Intl.DateTimeFormat('zh-CN', {
@@ -2599,20 +2598,97 @@ function refreshTzHint() {
 /**
  * 时区下拉设值
  *
- * ⚠️ 必须先补选项再赋值：别的设备可能存过一个列表里没有的时区，
- * 直接 sel.value = tz 会静默落空（select 对不存在的 value 一动不动），
- * 界面显示 A、库里存的是 B。
+ * ⚠️ 面板里没有这个时区时（别的设备存过），先补进去再选中 ——
+ *    否则界面显示 A、库里存的是 B。
  */
 function setDigestTz(tz) {
-  const sel = $('#digestTz');
-  if (![...sel.options].some(o => o.value === tz)) {
-    const o = document.createElement('option');
-    o.value = tz;
-    o.textContent = tz;
-    sel.appendChild(o);
-  }
-  sel.value = tz;
+  $('#digestTz').value = tz;
+  $('#digestTzText').textContent = tzLabel(tz);
   refreshTzHint();
+}
+
+/**
+ * 时区显示名：`北京时间（Asia/Shanghai）`
+ *
+ * labelKey 用中文原文，显示时再 chatzT —— 切英文跟着变，且不牵动 DOM 翻译器
+ * （这些节点是 JS 每次开面板时重建的）。
+ */
+function tzLabel(tz) {
+  const hit = DIGEST_TZS.find(t => t[0] === tz);
+  if (hit) return hit[1] === 'UTC' ? 'UTC' : `${chatzT(hit[1])}（${tz}）`;
+  return tz;   // 列表外的时区（别的设备存过的）：原样显示
+}
+
+/** 时区面板的候选：常用几个就够了，想填别的走服务端 API（tz 仍是自由字符串） */
+const DIGEST_TZS = [
+  ['Asia/Shanghai', '北京时间'],
+  ['Asia/Hong_Kong', '香港'],
+  ['Asia/Taipei', '台北'],
+  ['Asia/Tokyo', '东京'],
+  ['Asia/Singapore', '新加坡'],
+  ['Europe/London', '伦敦'],
+  ['Europe/Berlin', '柏林'],
+  ['America/New_York', '纽约'],
+  ['America/Los_Angeles', '洛杉矶'],
+  ['UTC', 'UTC'],
+];
+
+function buildDigestTzPanel() {
+  const panel = $('#digestTzPanel');
+  const cur = $('#digestTz').value;
+  const list = [...DIGEST_TZS];
+  if (!list.some(t => t[0] === cur)) list.unshift([cur, cur]);   // 保留库里已有的值
+  panel.innerHTML = '';
+  const ul = document.createElement('div');
+  ul.className = 'tz-list';
+  for (const [value] of list) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'time-picker-opt tz-opt' + (value === cur ? ' selected' : '');
+    b.textContent = tzLabel(value);
+    b.onclick = () => {
+      setDigestTz(value);
+      closeDigestTzPanel();
+    };
+    ul.appendChild(b);
+  }
+  panel.appendChild(ul);
+}
+
+/**
+ * 面板定位：默认往下展开，下面放不下就翻到上面。
+ *
+ * ⚠️ 为什么需要：设置页在 .modal-body 里，它是 overflow-y:auto 的滚动容器 ——
+ *    面板飘出容器下沿会被直接裁掉（不是"看不见"，是硬切一半）。
+ *    滚动容器里 position:fixed 也不合适（会脱离父级、跟着窗口跑），
+ *    所以还是 absolute + 上下翻转。
+ */
+function placeDigestPanel(btn, panel) {
+  if (!btn || !panel) return;
+  panel.classList.remove('up');
+  panel.classList.remove('hidden');            // 先显示才能量到尺寸
+  const r = panel.getBoundingClientRect();
+  const box = panel.closest('.modal-body');
+  const lim = box ? box.getBoundingClientRect()
+                  : { top: 0, bottom: window.innerHeight };
+  const above = btn.getBoundingClientRect().top - lim.top;
+  const below = lim.bottom - btn.getBoundingClientRect().bottom;
+  // 下面塞不下、且上面更宽裕 ⇒ 往上翻
+  if (r.bottom > lim.bottom - 4 && above > below) panel.classList.add('up');
+  // 分钟列有 60 项，打开时把当前选中项滚进视野（不然"现在是 08:45"要自己找）
+  const sel = panel.querySelector('.time-picker-opt.selected');
+  if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest' });
+}
+
+function openDigestTzPanel() {
+  closeDigestTimePanel();
+  buildDigestTzPanel();
+  placeDigestPanel($('#digestTzBtn'), $('#digestTzPanel'));
+}
+
+function closeDigestTzPanel() {
+  const p = $('#digestTzPanel');
+  if (p) p.classList.add('hidden');
 }
 
 // ── 自画时间选择器 ──
@@ -2653,17 +2729,20 @@ function buildDigestTimePanel() {
   // 选「时」就先收起（分一般不用动）；选「分」同理 —— 两次点击就能定完
   panel.appendChild(col(chatzT('时'), 24, ch, (h) => {
     $('#digestTime').value = h + ':' + cm;
+    updateDigestTimeText();
     closeDigestTimePanel();
   }));
   panel.appendChild(col(chatzT('分'), 60, cm, (m) => {
     $('#digestTime').value = ch + ':' + m;
+    updateDigestTimeText();
     closeDigestTimePanel();
   }));
 }
 
 function openDigestTimePanel() {
+  closeDigestTzPanel();
   buildDigestTimePanel();
-  $('#digestTimePanel').classList.remove('hidden');
+  placeDigestPanel($('#digestTimeBtn'), $('#digestTimePanel'));
 }
 
 function closeDigestTimePanel() {
@@ -4793,17 +4872,25 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#digestRunBtn').onclick = runDigestNow;
   // 优先级滑块旁的实时数字
   $('#digestPriority').oninput = (e) => { setDigestPriority(e.target.value); };
-  $('#digestTz').addEventListener('change', refreshTzHint);
 
-  // 时间选择器：点按钮开合，点别处收起
+  // 两个自画选择器：点按钮开合，点别处收起。
+  // 开一个会先关另一个 —— 两个面板同时飘在设置页里很乱。
   $('#digestTimeBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     const panel = $('#digestTimePanel');
     if (!panel) return;
     if (panel.classList.contains('hidden')) openDigestTimePanel(); else closeDigestTimePanel();
   });
+  $('#digestTzBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = $('#digestTzPanel');
+    if (!panel) return;
+    if (panel.classList.contains('hidden')) openDigestTzPanel(); else closeDigestTzPanel();
+  });
   document.addEventListener('click', (e) => {
-    if (!e.target.closest || !e.target.closest('#digestTimeWrap')) closeDigestTimePanel();
+    if (!e.target.closest) return;
+    if (!e.target.closest('#digestTimeWrap')) closeDigestTimePanel();
+    if (!e.target.closest('#digestTzWrap')) closeDigestTzPanel();
   });
 
   $('#sendBtn').onclick = openSendModal;

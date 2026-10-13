@@ -36,7 +36,7 @@ const { refreshUserChannels } = require('./ws');
 const i18n = require('./serverI18n');
 // 纯逻辑（默认值 / 设置合并 / 渲染）在零依赖的 digestCore.js 里，
 // 离线 verify 脚本要能 require 它，见那个文件的说明。
-const { DEFAULT_DIGEST, digestSettingsOf, zoneNow, dayKey } = require('./digestCore');
+const { DEFAULT_DIGEST, digestSettingsOf, renderDigest, zoneNow, dayKey } = require('./digestCore');
 
 const CHANNEL_NAME = '每日摘要';
 const CHANNEL_DESC = '每天的消息汇总，由系统自动生成（关闭摘要后这里的历史仍会保留）';

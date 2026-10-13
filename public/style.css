@@ -2229,21 +2229,28 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 [data-theme="dark"] .digest-row input[type="time"],
 [data-theme="dark"] .digest-row input[type="number"] { background: rgba(255, 255, 255, 0.05); }
 
-/* 时区：原生 select（点右边的小三角出列表）。
-   .modal-body select 的 width:100% 会把它撑满整行，这里收回来自适应。 */
-.digest-tz-select {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-  max-width: 260px;
-  padding: 7px 10px;
-  font-size: 13px;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--glass-border-soft);
-  border-radius: var(--r-md);
+/* 时区面板：单列、可滚动，宽度给足（「北京时间（Asia/Shanghai）」不短） */
+.tz-panel { padding: 8px; }
+.tz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 240px;
+  max-height: 232px;
+  overflow-y: auto;
 }
-[data-theme="dark"] .digest-tz-select { background: rgba(255, 255, 255, 0.05); }
+.tz-opt {
+  text-align: left;
+  padding: 7px 10px;
+  font-variant-numeric: normal;
+}
+/* 时区按钮里名字长，给个上限，超了省略号（value 仍在 hidden input 里，不受影响） */
+.digest-tz-btn { max-width: 240px; }
+.digest-tz-btn #digestTzText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── 自画时间选择器 ──
    为什么不用 <input type="time">：它弹出的选盘是浏览器自己的 shadow DOM，
@@ -2284,6 +2291,11 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
   border: 1px solid var(--glass-border);
   border-radius: 14px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+/* 下面放不下时翻到按钮上方（JS 加 .up；见 app.js placeDigestPanel） */
+.time-picker-panel.up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 .time-picker-col { display: flex; flex-direction: column; }
 .time-picker-col-title {

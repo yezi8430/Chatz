@@ -248,8 +248,17 @@
     '那边现在是 {0}': 'it is {0} there right now',
     '时': 'Hour',
     '分': 'Min',
-    '默认北京时间。想用别的时区就点时区框右边的小三角选一个；你所在时区当前的几点会实时显示在旁边。':
-      'Defaults to Beijing time. Pick another zone from the dropdown; the current time in that zone shows next to it.',
+    '北京时间': 'Beijing time',
+    '香港': 'Hong Kong',
+    '台北': 'Taipei',
+    '东京': 'Tokyo',
+    '新加坡': 'Singapore',
+    '伦敦': 'London',
+    '柏林': 'Berlin',
+    '纽约': 'New York',
+    '洛杉矶': 'Los Angeles',
+    '默认北京时间；你选的时区当前的几点会实时显示在旁边。':
+      'Defaults to Beijing time; the current time in your chosen zone shows live next to it.',
     '优先级': 'Priority',
     '优先级高更可能穿透系统勿扰（Android 的「仅优先级」模式）。App 内的勿扰定时段会被摘要直接绕过；系统级勿扰需要你在系统设置里给 Chatz 放行。':
       'Higher priority is more likely to cut through the system do-not-disturb mode (Android’s “priority only”). The in-app DND window is bypassed entirely; system-level DND needs you to allow Chatz in system settings.',
