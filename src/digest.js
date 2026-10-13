@@ -57,7 +57,9 @@ const TICK_MS = 60 * 1000;
  * 这个人的摘要容器频道 id（没有就 null）
  *
  * ⚠️ 必须 JOIN channels 确认频道**还在**：容器频道是用户自己的（creator_id = 他），
- *    所以他在频道管理里能删掉它。光看映射表的话，删完之后这里仍返回旧 id，
+ *    所以他在频道管理里能删掉它（DELETE /channel 是**硬删**，channels 表没有
+ *    deleted_at 这一列，JOIN 不上就是没了）。
+ *    光看映射表的话，删完之后这里仍返回旧 id，
  *    createMessage 会往一个不存在的频道里写 —— 摘要从此永远发不出来，
  *    而且没有任何报错（日志里只有一句 warn，用户看的是「今天没收到」）。
  *    JOIN 之后返回 null，下次发摘要就会重建一个。
@@ -67,7 +69,7 @@ function digestChannelId(userId) {
     SELECT d.channel_id
     FROM user_digest_channels d
     JOIN channels c ON c.id = d.channel_id
-    WHERE d.user_id = ? AND c.deleted_at IS NULL
+    WHERE d.user_id = ?
   `).get(userId);
   return row ? row.channel_id : null;
 }
@@ -116,7 +118,14 @@ function ensureDigestApp(userId, channelId) {
   const mine = db.prepare(
     "SELECT id FROM applications WHERE user_id = ? AND name = ? ORDER BY id ASC LIMIT 1"
   ).get(userId, APP_NAME);
-  if (mine) return mine.id;
+  if (mine) {
+    // ⚠️ 频道被删过之后要**指回新容器**：DELETE /channel 会把该频道下的应用
+    //    `UPDATE applications SET channel_id = 1`（挪到默认频道），
+    //    而上面 ensureDigestChannel 刚建了一个新频道 ——
+    //    不更新就会把摘要发到「默认频道」，所有订阅它的人都能看见。
+    db.prepare('UPDATE applications SET channel_id = ? WHERE id = ?').run(channelId, mine.id);
+    return mine.id;
+  }
 
   const now = Date.now();
   const token = crypto.randomBytes(5).toString('hex');   // 10 位，和 tokenGen 一个长度
