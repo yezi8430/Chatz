@@ -131,10 +131,12 @@ function digestItemTitle(row) {
  * @param groups  分组结果：[{ channelId, name, items:[row...] }]，items 按时间倒序
  * @param total   过滤后的总条数（可能大于 maxItems）
  * @param maxItems 最多列出多少条
- * @param dayPart 日期片段（`10月13日`），没有日期就留空 —— 标题和正文首行都用它
  * @returns {{ text, items, hidden }}
+ *
+ * ⚠️ 正文首行**不带日期**：日期只在消息标题上（`今日摘要（10月13日） · 12 条`）。
+ *    列表里每条都顶着标题，正文再写一遍是重复。
  */
-function renderDigest(groups, total, maxItems, dayPart = '') {
+function renderDigest(groups, total, maxItems) {
   // 展平保序（groups 已按时间倒序排好），取前 maxItems 条
   const flat = [];
   for (const g of groups) for (const it of g.items) flat.push(it);
@@ -152,9 +154,8 @@ function renderDigest(groups, total, maxItems, dayPart = '') {
 
   // 标题带日期：同一天的两份摘要（手动生成 + 定时）一眼能分清，
   // 翻历史也知道这份是哪天的 —— 日期按用户自己选的时区算，不是服务器时区。
-  const head = dayPart ? `今日摘要（${dayPart}）` : '今日摘要';
   const lines = [];
-  lines.push(`## ${head} · ${total} 条 / ${outGroups.length} 个频道`);
+  lines.push(`## 今日摘要 · ${total} 条 / ${outGroups.length} 个频道`);
   lines.push('');
   for (const g of outGroups) {
     lines.push(`**${g.name}**（${g.count}）`);

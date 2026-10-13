@@ -86,11 +86,12 @@ eq('纽约时区 → 10月12日（差一天，必须跟着时区）',
   C.dayLabel(C.zoneNow('America/New_York', instant).day,
     parseInt(C.zoneNow('America/New_York', instant).day.slice(0, 4), 10)), '10月12日');
 
-const dtxt = C.renderDigest([{ channelId: 10, name: 'A', items: [row(1)] }], 1, 20, '10月13日').text;
-ok('正文首行带日期（与消息标题同一格式：`今日摘要（10月13日） · N 条`）',
-  dtxt.includes('## 今日摘要（10月13日） · 1 条'));
-ok('不传日期时首行不出现空括号',
-  !C.renderDigest([{ channelId: 10, name: 'A', items: [row(1)] }], 1, 20).text.includes('（）'));
+// 日期只在**标题**上，正文首行不要重复写一遍（列表里每条都顶着标题）
+const dtxt = C.renderDigest([{ channelId: 10, name: 'A', items: [row(1)] }], 1, 20).text;
+ok('正文首行不带日期', !dtxt.includes('10月13日'));
+ok('正文首行不带空括号', !dtxt.includes('（）'));
+eq('正文首行是「今日摘要 · N 条 / M 个频道」', dtxt.split('\n')[0],
+  '## 今日摘要 · 1 条 / 1 个频道');
 
 console.log('\n=== 2c. 不再有 onlyUnread（摘要汇总全部消息）===');
 eq('默认值里没有 onlyUnread', 'onlyUnread' in C.DEFAULT_DIGEST, false);

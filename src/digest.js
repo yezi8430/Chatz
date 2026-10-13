@@ -146,7 +146,7 @@ function ensureDigestApp(userId, channelId) {
  *
  * @returns {{ total, items, text } | null}  一条可摘要的都没有时返回 null
  */
-function buildDigest(userId, cfg, dayPart = '') {
+function buildDigest(userId, cfg) {
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
 
   // 候选集：这个人订阅的频道、未删除未归档、过去 24 小时。
@@ -197,7 +197,7 @@ function buildDigest(userId, cfg, dayPart = '') {
   const groups = [...byChannel.values()];
 
   // 渲染（分组计数、截断、「还有 N 条」）在 digestCore.renderDigest 里，纯函数
-  const rendered = renderDigest(groups, filtered.length, cfg.maxItems, dayPart);
+  const rendered = renderDigest(groups, filtered.length, cfg.maxItems);
   return { total: filtered.length, items: rendered.items, text: rendered.text };
 }
 
@@ -232,7 +232,7 @@ function sendDigest(user, cfg, { force = false, day = null } = {}) {
   const when = dayLabel(d, parseInt(String(now.day).slice(0, 4), 10));
 
   const channelId = ensureDigestChannel(user.id);
-  const built = buildDigest(user.id, cfg, when);
+  const built = buildDigest(user.id, cfg);
   if (!built) return { sent: false, reason: 'empty' };
 
   const appId = ensureDigestApp(user.id, channelId);
