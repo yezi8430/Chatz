@@ -2229,24 +2229,94 @@ a.msg-open-btn:hover { background: var(--accent); color: #fff; }
 [data-theme="dark"] .digest-row input[type="time"],
 [data-theme="dark"] .digest-row input[type="number"] { background: rgba(255, 255, 255, 0.05); }
 
-/* 时区：可自由填写。输入框给等宽字体（时区名本来就是这样写的），
-   填错实时变红 —— 不用等点了保存才被服务端打回。 */
-.digest-tz {
+/* 时区：原生 select（点右边的小三角出列表）。
+   .modal-body select 的 width:100% 会把它撑满整行，这里收回来自适应。 */
+.digest-tz-select {
   flex: 1 1 auto;
+  width: auto;
   min-width: 0;
+  max-width: 260px;
   padding: 7px 10px;
   font-size: 13px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--text);
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid var(--glass-border-soft);
   border-radius: var(--r-md);
-  transition: border-color 0.15s ease;
 }
-[data-theme="dark"] .digest-tz { background: rgba(255, 255, 255, 0.05); }
-.digest-tz.digest-tz-invalid {
-  border-color: var(--danger);
-  background: var(--danger-soft);
+[data-theme="dark"] .digest-tz-select { background: rgba(255, 255, 255, 0.05); }
+
+/* ── 自画时间选择器 ──
+   为什么不用 <input type="time">：它弹出的选盘是浏览器自己的 shadow DOM，
+   样式改不了 —— 选中段是一大块直角蓝色（用户点名要圆角的），只能自己画。 */
+.time-picker { position: relative; flex: 0 0 auto; }
+.time-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+[data-theme="dark"] .time-picker-btn { background: rgba(255, 255, 255, 0.05); }
+.time-picker-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-secondary);
+}
+.time-picker-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;                       /* 要盖过设置页里排在后面的内容 */
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.time-picker-col { display: flex; flex-direction: column; }
+.time-picker-col-title {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.time-picker-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px;
+  width: 96px;
+  max-height: 168px;                 /* 6 行，再往下滚 */
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.time-picker-opt {
+  padding: 5px 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 8px;                /* ← 用户要的：选中也是圆角 */
+  cursor: pointer;
+}
+.time-picker-opt:hover { background: var(--accent-soft); }
+.time-picker-opt.selected {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
 
 /* 优先级滑块：自己画轨道，填充比例由 JS 写到 --digest-fill 上。

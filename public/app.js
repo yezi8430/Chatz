@@ -2561,8 +2561,8 @@ async function loadDigestSettings() {
   }
   $('#digestEnabled').checked = !!d.enabled;
   $('#digestTime').value = /^\d{2}:\d{2}$/.test(d.time) ? d.time : DIGEST_DEFAULTS.time;
-  $('#digestTz').value = (typeof d.tz === 'string' && d.tz.trim()) ? d.tz.trim() : DIGEST_DEFAULTS.tz;
-  refreshTzHint();
+  updateDigestTimeText();
+  setDigestTz((typeof d.tz === 'string' && d.tz.trim()) ? d.tz.trim() : DIGEST_DEFAULTS.tz);
   setDigestPriority(d.priority);
   $('#digestIncludeMuted').checked = !!d.includeMuted;
   $('#digestExcludeOwn').checked = !!d.excludeOwn;
@@ -2575,27 +2575,100 @@ async function loadDigestSettings() {
 }
 
 /**
- * 时区输入框旁边的实时提示：那边现在几点 / 名字对不对
+ * 时区下拉旁边的实时提示：那边现在几点
  *
- * 用浏览器自己的 Intl 现算，不发请求。浏览器和服务器的 ICU 都是完整版，
- * 对「某个名字存不存在」的判定一致；万一两边不一致，服务端保存时还会再拦一次。
+ * 用浏览器自己的 Intl 现算，不发请求。时区改成了下拉（可选项都是合法的），
+ * 所以这里不再有「无效」分支 —— 服务端保存时仍会再拦一次，双保险留着。
  */
 function refreshTzHint() {
-  const el = $('#digestTz');
+  const sel = $('#digestTz');
   const hint = $('#digestTzHint');
-  if (!el || !hint) return;
-  const v = (el.value || '').trim();
-  el.classList.remove('digest-tz-invalid');
-  if (!v) { hint.textContent = ''; return; }
+  if (!sel || !hint) return;
+  const tz = sel.value;
+  if (!tz) { hint.textContent = ''; return; }
   try {
     const t = new Intl.DateTimeFormat('zh-CN', {
-      timeZone: v, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     }).format(new Date());
     hint.textContent = chatzT('那边现在是 {0}', [t]);
   } catch (e) {
-    el.classList.add('digest-tz-invalid');
-    hint.textContent = chatzT('不是有效的时区名');
+    hint.textContent = '';
   }
+}
+
+/**
+ * 时区下拉设值
+ *
+ * ⚠️ 必须先补选项再赋值：别的设备可能存过一个列表里没有的时区，
+ * 直接 sel.value = tz 会静默落空（select 对不存在的 value 一动不动），
+ * 界面显示 A、库里存的是 B。
+ */
+function setDigestTz(tz) {
+  const sel = $('#digestTz');
+  if (![...sel.options].some(o => o.value === tz)) {
+    const o = document.createElement('option');
+    o.value = tz;
+    o.textContent = tz;
+    sel.appendChild(o);
+  }
+  sel.value = tz;
+  refreshTzHint();
+}
+
+// ── 自画时间选择器 ──
+// <input type="time"> 的弹出选盘是浏览器 shadow DOM，改不了样式 ——
+// 选中段是一大块直角蓝色。这里自己画：时/分两列圆角小片，点谁选谁。
+
+function updateDigestTimeText() {
+  const v = $('#digestTime').value;
+  if (/^\d{2}:\d{2}$/.test(v)) $('#digestTimeText').textContent = v;
+}
+
+function buildDigestTimePanel() {
+  const panel = $('#digestTimePanel');
+  const cur = /^\d{2}:\d{2}$/.test($('#digestTime').value) ? $('#digestTime').value : '08:00';
+  const [ch, cm] = cur.split(':');
+  const p2 = (n) => String(n).padStart(2, '0');
+  const col = (title, count, picked, onpick) => {
+    const c = document.createElement('div');
+    c.className = 'time-picker-col';
+    const t = document.createElement('div');
+    t.className = 'time-picker-col-title';
+    t.textContent = title;
+    c.appendChild(t);
+    const list = document.createElement('div');
+    list.className = 'time-picker-list';
+    for (let i = 0; i < count; i++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'time-picker-opt' + (p2(i) === picked ? ' selected' : '');
+      b.textContent = p2(i);
+      b.onclick = () => onpick(p2(i));
+      list.appendChild(b);
+    }
+    c.appendChild(list);
+    return c;
+  };
+  panel.innerHTML = '';
+  // 选「时」就先收起（分一般不用动）；选「分」同理 —— 两次点击就能定完
+  panel.appendChild(col(chatzT('时'), 24, ch, (h) => {
+    $('#digestTime').value = h + ':' + cm;
+    closeDigestTimePanel();
+  }));
+  panel.appendChild(col(chatzT('分'), 60, cm, (m) => {
+    $('#digestTime').value = ch + ':' + m;
+    closeDigestTimePanel();
+  }));
+}
+
+function openDigestTimePanel() {
+  buildDigestTimePanel();
+  $('#digestTimePanel').classList.remove('hidden');
+}
+
+function closeDigestTimePanel() {
+  const p = $('#digestTimePanel');
+  if (p) p.classList.add('hidden');
 }
 
 /**
@@ -2645,17 +2718,14 @@ async function saveDigestSettings() {
   try {
     const r = await api('/user/settings', { method: 'PUT', body: JSON.stringify(body) });
     toast(chatzT('已保存'));
-    // 用服务端合并后的值回写：时区不合法时它会被丢掉，界面要如实反映（而不是假装保存上了）
+    // 用服务端合并后的值回写（时区来自下拉，只会是合法值；保险起见仍以服务端为准）
     const saved = (r && r.settings && r.settings.digest) ? r.settings.digest : body.digest;
     state.digestEnabled = !!saved.enabled;
     state.digest = { ...DIGEST_DEFAULTS, ...saved };
     // 关掉开关 = 明确要藏起来：连「手动生成过一份」临时显形的那个标记也要清掉，
     // 否则刚预览过的人关了开关，条目还赖在列表里。
     if (!state.digestEnabled) state.digestReveal = false;
-    if (typeof saved.tz === 'string' && saved.tz !== $('#digestTz').value) {
-      $('#digestTz').value = saved.tz;
-      toast(chatzT('时区无效，已回退为 {0}', [saved.tz]));
-    }
+    setDigestTz(state.digest.tz || DIGEST_DEFAULTS.tz);
     // 开着的抽屉/频道列表要跟着变（isDigest 频道的显隐）—— 简单起见刷新页面数据
     if (typeof loadChannels === 'function') loadChannels();
     ensureDigestVisible();
@@ -4723,8 +4793,18 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#digestRunBtn').onclick = runDigestNow;
   // 优先级滑块旁的实时数字
   $('#digestPriority').oninput = (e) => { setDigestPriority(e.target.value); };
-  $('#digestTz').addEventListener('input', refreshTzHint);
   $('#digestTz').addEventListener('change', refreshTzHint);
+
+  // 时间选择器：点按钮开合，点别处收起
+  $('#digestTimeBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = $('#digestTimePanel');
+    if (!panel) return;
+    if (panel.classList.contains('hidden')) openDigestTimePanel(); else closeDigestTimePanel();
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest || !e.target.closest('#digestTimeWrap')) closeDigestTimePanel();
+  });
 
   $('#sendBtn').onclick = openSendModal;
   $('#newChannelBtn').onclick = openChannelModal;

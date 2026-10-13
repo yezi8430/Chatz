@@ -530,29 +530,35 @@
         <p class="hint">开启后会建一个私有的「每日摘要」频道（只有你能看），摘要落在里面。关掉开关只是不再生成、也不显示入口，历史仍会保留。</p>
 
         <div class="digest-row">
-          <label for="digestTime">发送时间</label>
-          <input id="digestTime" type="time" value="08:00">
+          <label>发送时间</label>
+          <div class="time-picker" id="digestTimeWrap">
+            <button type="button" id="digestTimeBtn" class="time-picker-btn" aria-haspopup="listbox">
+              <span id="digestTimeText">08:00</span>
+              <span class="time-picker-caret" aria-hidden="true"></span>
+            </button>
+            <div id="digestTimePanel" class="time-picker-panel hidden"></div>
+            <!-- 真值存这里：保存/加载的代码不用改（仍然读写 #digestTime.value） -->
+            <input id="digestTime" type="hidden" value="08:00">
+          </div>
           <span class="digest-unit">每天这个时刻发一份</span>
         </div>
         <div class="digest-row">
           <label for="digestTz">时区</label>
-          <input id="digestTz" class="digest-tz" type="text" list="digestTzList" value="Asia/Shanghai"
-                 spellcheck="false" autocomplete="off" placeholder="Asia/Shanghai">
+          <select id="digestTz" class="digest-tz-select">
+            <option value="Asia/Shanghai">北京时间（Asia/Shanghai）</option>
+            <option value="Asia/Hong_Kong">香港（Asia/Hong_Kong）</option>
+            <option value="Asia/Taipei">台北（Asia/Taipei）</option>
+            <option value="Asia/Tokyo">东京（Asia/Tokyo）</option>
+            <option value="Asia/Singapore">新加坡（Asia/Singapore）</option>
+            <option value="Europe/London">伦敦（Europe/London）</option>
+            <option value="Europe/Berlin">柏林（Europe/Berlin）</option>
+            <option value="America/New_York">纽约（America/New_York）</option>
+            <option value="America/Los_Angeles">洛杉矶（America/Los_Angeles）</option>
+            <option value="UTC">UTC</option>
+          </select>
           <span id="digestTzHint" class="digest-unit"></span>
         </div>
-        <datalist id="digestTzList">
-          <option value="Asia/Shanghai">北京时间</option>
-          <option value="Asia/Hong_Kong">香港</option>
-          <option value="Asia/Taipei">台北</option>
-          <option value="Asia/Tokyo">东京</option>
-          <option value="Asia/Singapore">新加坡</option>
-          <option value="Europe/London">伦敦</option>
-          <option value="Europe/Berlin">柏林</option>
-          <option value="America/New_York">纽约</option>
-          <option value="America/Los_Angeles">洛杉矶</option>
-          <option value="UTC">UTC</option>
-        </datalist>
-        <p class="hint">默认<b>北京时间</b>（Asia/Shanghai），可以改成任何 IANA 时区名。填了一个不存在的时区，这一项会保存失败（其它项照常保存）。</p>
+        <p class="hint">默认<b>北京时间</b>。想用别的时区就点时区框右边的小三角选一个；你所在时区当前的几点会实时显示在旁边。</p>
 
         <div class="digest-row">
           <label for="digestPriority">优先级</label>

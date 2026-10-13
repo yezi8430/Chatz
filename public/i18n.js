@@ -246,10 +246,10 @@
     '发送时间': 'Send at',
     '每天这个时刻发一份': 'sent once a day at this time',
     '那边现在是 {0}': 'it is {0} there right now',
-    '不是有效的时区名': 'not a valid time zone name',
-    '默认北京时间（Asia/Shanghai），可以改成任何 IANA 时区名。填了一个不存在的时区，这一项会保存失败（其它项照常保存）。':
-      'Defaults to Beijing time (Asia/Shanghai); set any IANA time zone name instead. A name that does not exist is rejected (the other fields still save).',
-    '时区无效，已回退为 {0}': 'Invalid time zone — fell back to {0}',
+    '时': 'Hour',
+    '分': 'Min',
+    '默认北京时间。想用别的时区就点时区框右边的小三角选一个；你所在时区当前的几点会实时显示在旁边。':
+      'Defaults to Beijing time. Pick another zone from the dropdown; the current time in that zone shows next to it.',
     '优先级': 'Priority',
     '优先级高更可能穿透系统勿扰（Android 的「仅优先级」模式）。App 内的勿扰定时段会被摘要直接绕过；系统级勿扰需要你在系统设置里给 Chatz 放行。':
       'Higher priority is more likely to cut through the system do-not-disturb mode (Android’s “priority only”). The in-app DND window is bypassed entirely; system-level DND needs you to allow Chatz in system settings.',
