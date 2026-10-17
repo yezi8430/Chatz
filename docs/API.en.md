@@ -141,7 +141,7 @@ The client IP used for counting is resolved centrally by `clientIp.js`, with exa
 as the audit log: **only the TCP peer address by default**; `X-Forwarded-For` is trusted only if
 `TRUST_PROXY` is explicitly configured (see the "client IP" chapter in README / DEPLOY).
 
-⚠️ **Every limit has its own counter** (keys look like `password:192.168.2.5`) — normal API traffic
+⚠️ **Every limit has its own counter** (keys look like `password:192.168.1.5`) — normal API traffic
 does not eat into the registration / password-change budget. If an endpoint returns 429 on its very
 first call, verify that you really are calling too often; do not assume another traffic source
 crowded you out (that bug was fixed on 2026-09-29).

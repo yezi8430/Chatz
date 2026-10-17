@@ -119,7 +119,7 @@ docker run -d --name chatz \
 > `env_file: .env` 进容器的。结果：compose 认为配置没变，**容器压根不重建**，应用里还是旧值，
 > 同样没有任何报错（`docker compose up` 只会打印一行 `Container chatz Running`）。
 >
-> **怎么判断生效没有**：改完直接读配置接口 —— `curl -s http://192.168.2.100:20010/config`，
+> **怎么判断生效没有**：改完直接读配置接口 —— `curl -s http://192.168.1.100:20010/config`，
 > 聚合相关的 `aggWindowMs` / `aggMaxLifetimeMs` 就在响应里（`/config` 是公开接口）。
 >
 > **靠谱的改法**：
@@ -937,9 +937,9 @@ docker compose exec chatz node -e 'console.log(require("better-sqlite3")("/app/d
 查当前生效值：
 
 ```bash
-curl -s http://192.168.2.100:20010/config | grep -o '"lang":"[a-z]*"'
+curl -s http://192.168.1.100:20010/config | grep -o '"lang":"[a-z]*"'
 # 或直接看专门那个接口（需要登录）
-curl -s -H "Authorization: Bearer <你的Token>" http://192.168.2.100:20010/config/lang
+curl -s -H "Authorization: Bearer <你的Token>" http://192.168.1.100:20010/config/lang
 ```
 
 > ⚠️ `LOG_LANG` 一旦设了，`/config/lang` 会返回 `"locked": true` —— 界面上切换仍然照常

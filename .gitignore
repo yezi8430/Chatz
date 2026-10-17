@@ -31,7 +31,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# 本机自用的全站接口自检脚本
-# ⚠️ 它带着真实服务的地址，历史上还硬编码过超管 token（2026-10-02 已清空）。
+# 本机自用的自检 / 运维脚本（verify-*.js + verify-full.sh）
+# ⚠️ 它们带真实服务的地址，历史上还硬编码过超管 token（2026-10-02 已清空）。
 #    发到 GitHub 之前这类"个人运维脚本"一律不进版本库 —— 想分享先确认里面没有任何凭据。
+#    本机开发照常用：`node verify-digest.js`、`bash verify-full.sh`；
+#    这些脚本不联网、不要 docker、不要 node_modules，是本机唯一的自动化验证手段。
 verify-full.sh
+verify-*.js

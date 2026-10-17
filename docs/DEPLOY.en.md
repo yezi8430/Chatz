@@ -130,7 +130,7 @@ the README).
 > (`docker compose up` merely prints `Container chatz Running`).
 >
 > **How to tell whether it took effect**: read the config endpoint after changing it —
-> `curl -s http://192.168.2.100:20010/config`; the aggregation values `aggWindowMs` /
+> `curl -s http://192.168.1.100:20010/config`; the aggregation values `aggWindowMs` /
 > `aggMaxLifetimeMs` are in the response (`/config` is public).
 >
 > **Ways that do work**:
@@ -978,9 +978,9 @@ and a `config.set_lang` row in the audit log.
 To read the effective value:
 
 ```bash
-curl -s http://192.168.2.100:20010/config | grep -o '"lang":"[a-z]*"'
+curl -s http://192.168.1.100:20010/config | grep -o '"lang":"[a-z]*"'
 # or the dedicated endpoint (requires a token)
-curl -s -H "Authorization: Bearer <your-token>" http://192.168.2.100:20010/config/lang
+curl -s -H "Authorization: Bearer <your-token>" http://192.168.1.100:20010/config/lang
 ```
 
 > ⚠️ Once `LOG_LANG` is set, `/config/lang` reports `"locked": true` — switching in the UI still
